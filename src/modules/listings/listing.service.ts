@@ -376,3 +376,175 @@ export const findDuplicates = async (
 
   return Array.from(map.values());
 };
+
+// ─── Photos (public) ────────────────────────────────────────────────────────────
+
+export const addPhotos = async (
+  id: string,
+  photos: { url: string; publicId: string }[],
+  userId: string | null,
+  role: string | null,
+): Promise<IListing> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+  listing.photos.push(...photos);
+  await listing.save();
+  return listing;
+};
+
+/**
+ * Removes a photo following a safe order: locate listing → check permission →
+ * confirm the photo belongs to this listing → remove from the listing → and
+ * only THEN does the caller destroy the remote asset. Returns the publicId so
+ * the controller can destroy the external file after the DB write succeeds.
+ */
+export const removePhoto = async (
+  id: string,
+  publicId: string,
+  userId: string | null,
+  role: string | null,
+): Promise<{ listing: IListing; publicId: string }> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+
+  const exists = listing.photos.some((p) => p.publicId === publicId);
+  if (!exists) {
+    throw new AppError("Photo not found on this listing", StatusCodes.NOT_FOUND);
+  }
+
+  listing.photos = listing.photos.filter(
+    (p) => p.publicId !== publicId,
+  ) as IListing["photos"];
+  await listing.save();
+  return { listing, publicId };
+};
+
+// ─── Ownership documents (private) ──────────────────────────────────────────────
+
+interface NewDocument {
+  type: "title_deed" | "id" | "tax_record" | "other";
+  publicId: string;
+  hash: string;
+}
+
+export const addDocuments = async (
+  id: string,
+  docs: NewDocument[],
+  userId: string,
+  role: string,
+): Promise<IListing> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+
+  docs.forEach((d) =>
+    listing.documents.push({ ...d, status: "pending", uploadedAt: new Date() }),
+  );
+  // Documents now await admin verification.
+  listing.verificationStatus = "pending";
+  await listing.save();
+
+  await Promise.all(
+    docs.map((d) =>
+      audit.record({
+        actor: userId,
+        actorRole: role,
+        action: "document.uploaded",
+        targetId: listing.id,
+        metadata: { type: d.type },
+      }),
+    ),
+  );
+
+  return listing;
+};
+
+export interface DocumentSummary {
+  id: string;
+  type: string;
+  status: string;
+  hash: string;
+  reviewNote?: string;
+  uploadedAt: Date;
+}
+
+const summarizeDoc = (d: IListing["documents"][number]): DocumentSummary => ({
+  id: d._id.toString(),
+  type: d.type,
+  status: d.status,
+  hash: d.hash, // hash is non-sensitive; publicId is intentionally omitted
+  reviewNote: d.reviewNote,
+  uploadedAt: d.uploadedAt,
+});
+
+export const listDocuments = async (
+  id: string,
+  userId: string,
+  role: string,
+): Promise<DocumentSummary[]> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+  return listing.documents.map(summarizeDoc);
+};
+
+// Returns the raw subdoc (incl. publicId) for server-side signed-URL minting.
+export const getDocumentForAccess = async (
+  id: string,
+  docId: string,
+  userId: string,
+  role: string,
+): Promise<IListing["documents"][number]> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+  const doc = listing.documents.id(docId);
+  if (!doc) throw new AppError("Document not found", StatusCodes.NOT_FOUND);
+  return doc;
+};
+
+export const reviewDocument = async (
+  id: string,
+  docId: string,
+  decision: "approve" | "reject",
+  note: string | undefined,
+  adminId: string,
+  role: string,
+): Promise<IListing> => {
+  if (!isAdmin(role)) {
+    throw new AppError(
+      "Only an administrator can review documents",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+
+  const listing = await findOr404(id);
+  const doc = listing.documents.id(docId);
+  if (!doc) throw new AppError("Document not found", StatusCodes.NOT_FOUND);
+
+  if (decision === "approve") {
+    doc.status = "approved";
+    doc.reviewNote = note;
+    // Approving the title deed verifies the listing and captures the hash that
+    // Increment 2 will anchor on-chain.
+    if (doc.type === "title_deed") {
+      listing.verificationStatus = "verified";
+      listing.verifiedBy = adminId as unknown as IListing["verifiedBy"];
+      listing.verifiedAt = new Date();
+      listing.ownershipDocumentHash = doc.hash;
+    }
+  } else {
+    doc.status = "rejected";
+    doc.reviewNote = note;
+    listing.verificationStatus = "rejected";
+  }
+
+  await listing.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role,
+    action: decision === "approve" ? "document.approved" : "document.rejected",
+    targetId: listing.id,
+    metadata: { docId, type: doc.type },
+  });
+
+  return listing;
+};
