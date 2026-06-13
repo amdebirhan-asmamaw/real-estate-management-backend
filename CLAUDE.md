@@ -47,6 +47,19 @@ Express 4 + TypeScript + MongoDB (Mongoose) REST API, intended as a clonable tem
 - **Logging:** Use the `logger` from `core/utils/logger.ts` (not raw `console`). The HTTP logger redacts a `SENSITIVE_KEYS` list from request bodies — extend that list when adding fields that must never be logged.
 - **Lifecycle:** `app.ts` must stay free of side effects (it's imported directly by tests). DB connection and `listen()` live in `server.ts`, which connects before listening and drains HTTP + Mongo on `SIGTERM`/`SIGINT`.
 
+## Domain: real-estate marketplace (Increment 1)
+
+This is the backend for a verified, decentralized real-estate platform, built incrementally. Increment 1 (shipped) is the off-chain marketplace core; blockchain/title minting is a later increment. See `docs/prd/increment-1-marketplace-core.md`.
+
+- **Roles** (`auth.model.ts`): `super_admin`, `admin`, `property_owner`, `tenant`. Self-registration is limited to `property_owner`/`tenant` (enforced in `auth.validation.ts`); admins are provisioned out-of-band. `super_admin` == `admin` for authorization today.
+- **Listings** (`src/modules/listings/`): the `listing.service.ts` holds CRUD, the review **state machine** (`transition`), geospatial `discover`, photos, and private documents. Geolocation is a GeoJSON `Point` with a `2dsphere` index; discovery uses `$geoWithin/$box` (viewport) and `$near` (radius). `countDocuments` rejects `$near`, so radius counts strip the geo clause.
+- **Review workflow:** owners create drafts and `submit`; **only admins publish**. Statuses: `draft → submitted → under_review → approved → published` (+ `rejected`, `suspended`, `archived`). Transitions are a table in `listing.service.ts` (`TRANSITIONS`) keyed by action, each with allowed `from` states, actor (`owner_or_admin`/`admin_only`), and audit action. Add new transitions there, not in controllers.
+- **Private documents:** ownership docs upload to Cloudinary as `authenticated` (private) resources via `uploadPrivate` and are sha-256 hashed (`core/utils/hash.ts`) for future on-chain anchoring. They are **never** in a listing's JSON (model `toJSON` deletes `documents`); access is only via the authz-gated signed-URL endpoint. Photos are public (`uploadPublic`).
+- **Photo deletion order:** remove from the listing in the DB first, then destroy the remote asset (`controller.removePhoto`) — never destroy before permission + existence are confirmed.
+- **Blockchain-ready fields** on `Listing` (`verificationStatus`, `verifiedBy`, `ownershipDocumentHash`, `blockchainTxHash`, `tokenId`, …) are populated now only as far as verification; the rest await Increment 2.
+- **Audit log** (`src/modules/audit/`): every lifecycle transition and document review writes a queryable `AuditLog` entry via best-effort `record()` (failures never break the business op).
+- **Uploader is mockable:** tests `jest.mock("../src/core/utils/uploader", …)` to avoid real Cloudinary calls.
+
 ## Testing
 
 Jest + Supertest with `mongodb-memory-server` (no external DB). `tests/env.setup.ts` sets env vars before any app module loads; `tests/setup.ts` spins up the in-memory Mongo and clears collections between tests. Tests import `app` from `src/app.ts` directly and assert over HTTP. Rate limiting is disabled under `NODE_ENV=test` (see `rateLimiter.middleware.ts`).

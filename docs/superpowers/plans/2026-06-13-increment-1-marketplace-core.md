@@ -1,5 +1,12 @@
 # Increment 1: Marketplace Core — Implementation Plan
 
+> ⚠️ **SUPERSEDED & IMPLEMENTED.** This was the original draft. The shipped design
+> added a verified admin review workflow, the `super_admin/admin/property_owner/tenant`
+> role model, private ownership-document upload, an audit log, duplicate warnings,
+> and blockchain-ready fields. The authoritative description of what was built is
+> [`docs/prd/increment-1-marketplace-core.md`](../../prd/increment-1-marketplace-core.md);
+> the revised build plan is in `~/.claude/plans/`. Kept for history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a role-aware property-listing module with photo upload and geospatial discovery (viewport, radius, attribute filters) to the existing Express + TypeScript + MongoDB backend.

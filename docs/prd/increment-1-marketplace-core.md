@@ -1,131 +1,127 @@
-# PRD — Increment 1: Marketplace Core (Backend)
+# PRD — Increment 1: Marketplace Core with Verified Review (Backend)
 
 **Product:** Decentralized Real Estate Platform
 **Increment:** 1 of N (Agile / incremental delivery)
-**Scope of this document:** Backend API only, built on the existing Express + TypeScript + MongoDB template. Blockchain (smart contracts, digital titles, escrow) and the web frontend are explicitly **out of scope** for this increment and are tracked in the roadmap below.
-**Status:** Draft for build
+**Scope:** Backend API only, on the Express + TypeScript + MongoDB template. Blockchain (smart contracts, title minting, escrow) and the web frontend are **out of scope** here (see roadmap §10).
+**Status:** Implemented ✅
 
 ---
 
 ## 1. Background & Vision
 
-The platform's long-term vision is a decentralized real estate marketplace where ownership, titles, and rental agreements are verifiable on-chain, intermediaries are reduced, and discovery is spatial and data-rich. Delivering that all at once is high-risk. We deliver incrementally: a usable off-chain marketplace first, then layer Web3 trust guarantees onto a proven foundation.
+The platform's long-term vision is a decentralized real-estate marketplace where ownership, titles, and rental agreements are verifiable on-chain, intermediaries are reduced, and discovery is spatial and data-rich. We deliver incrementally: a **verified** off-chain marketplace first, then anchor it on-chain.
 
-**Increment 1 delivers the marketplace core**: the ability for property owners and agents to publish richly-described, photo-backed listings, and for buyers/renters to discover them through map-driven spatial search and filtering. This is the off-chain "source of truth" that later increments anchor to the blockchain.
+Increment 1 delivers the marketplace core with an **integrity guarantee**: property owners publish nothing directly — listings become public only after an administrator reviews the owner's private ownership documents and approves them. This produces the trustworthy off-chain "source of truth" later increments anchor to the blockchain.
 
 ## 2. Problem Statement
 
-Property seekers cannot efficiently find listings that match both their spatial constraints (specific neighborhoods, "what's near me / near this point") and their attribute constraints (price, type, size). Owners and agents lack a structured, multi-role system to publish and manage listings with proper ownership of their data. Existing portals also mix listing data quality and access control poorly.
+Seekers cannot efficiently find listings matching both spatial constraints (neighborhood, near-a-point) and attributes (price, type, size). Owners need a structured, multi-role system to manage listings. Critically, an unverified marketplace cannot be trusted: ownership must be vetted before a listing is publicly discoverable.
 
-Increment 1 solves the **discovery and listing-management** problem with a clean, role-aware API and true geospatial search — without yet relying on blockchain.
+## 3. Roles
 
-## 3. Target Users & Roles
+| Role | Jobs To Be Done |
+| --- | --- |
+| **tenant** (public) | Discover/filter published listings; view detail + photos. |
+| **property_owner** | Create/edit own draft listings; upload photos + private ownership docs; submit for review. |
+| **admin** | Review documents, verify ownership, approve/reject/publish/suspend; view audit log + duplicate warnings. |
+| **super_admin** | Same as admin in Increment 1 (distinction — managing admins — reserved for later). |
 
-| Role               | Primary Jobs To Be Done                                                                            |
-| ------------------ | -------------------------------------------------------------------------------------------------- |
-| **Buyer / Renter** | Search and filter listings by location and attributes; view full listing detail with photos.       |
-| **Agent**          | Create and manage listings on behalf of clients; manage their own portfolio of listings.           |
-| **Owner**          | Publish and manage listings for properties they own.                                               |
-| **Admin**          | Oversee all listings; moderate/unpublish; manage users. (Compliance vetting is a later increment.) |
-
-Agents and Owners have equivalent listing-management capabilities in Increment 1; the distinction becomes meaningful in later increments (e.g. on-chain title ownership vs. brokered representation).
+Self-registration is limited to `property_owner` and `tenant`; `admin`/`super_admin` are provisioned out-of-band. Default role: `tenant`.
 
 ## 4. Goals & Non-Goals
 
 **Goals**
+- Role-based auth across the four roles.
+- Listing lifecycle through an **admin-gated review workflow** (owners cannot self-publish).
+- Both for-sale and for-rent listings (metadata only).
+- Public photo galleries (Cloudinary).
+- **Private ownership-document upload**, admin review, and sha-256 hashing (prep for on-chain).
+- Geospatial discovery: viewport + radius + attribute filters + pagination (published-only).
+- Queryable audit log; non-blocking duplicate-listing warnings for admins.
+- Blockchain-ready metadata fields present on the model.
 
-- Role-based authentication and authorization across buyer/renter, agent, owner, admin.
-- Full property listing lifecycle: create, read, update, delete, publish/unpublish.
-- Support both **for-sale** and **for-rent** listings (metadata only).
-- Photo galleries via a real upload pipeline to a CDN.
-- Geospatial discovery: map-viewport (bounding-box) search, radius-from-point search, and attribute filtering, with pagination.
-
-**Non-Goals (deferred to later increments)**
-
-- Any blockchain / smart-contract / digital-title / escrow functionality.
-- Rental-agreement execution, payments, or escrow logic (rental fields are descriptive only).
-- Lead-generation analytics, rental-yield dashboards, tenant management.
-- AML/compliance vetting, broker-license verification, transaction auditing.
-- The web/mobile frontend (this increment exposes the API only).
+**Non-Goals**
+- **Increment 1.5 (deferred):** favorites/saved properties; tenant→owner inquiries.
+- **Increment 2+:** all on-chain logic (title minting, escrow, document-hash anchoring), rental-agreement execution, analytics dashboards, AML/compliance vetting.
 
 ## 5. Functional Requirements
 
-### 5.1 Authentication & Roles
+### 5.1 Auth & Roles
+- FR-1: Register as `property_owner` or `tenant` (default `tenant`); `admin`/`super_admin` rejected at registration.
+- FR-2: Reuses the template's JWT access/refresh auth.
+- FR-3: Listing management requires `property_owner` (own) or admin.
+- FR-4: A user may modify/delete only their own listing; admins may act on any.
 
-- FR-1: Users register with a role of `buyer`, `agent`, or `owner`. `admin` is assigned out-of-band (seed/admin action), never via public registration.
-- FR-2: Existing JWT access/refresh auth from the template is reused.
-- FR-3: Listing-management endpoints require an authenticated `agent`, `owner`, or `admin`.
-- FR-4: A user may only modify/delete listings they created; `admin` may modify/delete any listing.
+### 5.2 Listings & Review Workflow
+- FR-5: Captures title, description, listingType (`sale|rent`), category (`residential|commercial`), price/monthlyRent + currency, bedrooms, bathrooms, area, address, GeoJSON location, amenities, photos.
+- FR-6: Validation rejects out-of-range coordinates, negatives, and missing type-specific fields (`monthlyRent` for rent, `price` for sale).
+- FR-7: **Statuses:** `draft → submitted → under_review → approved → published`, plus `rejected`, `suspended`, `archived`. Owners create drafts and `submit`; **only admins** `start_review`/`approve`/`reject`/`publish`/`suspend`. Illegal transitions return 409; wrong-role transitions 403.
+- FR-8: Rejection requires a reason code: `missing_document`, `invalid_ownership_proof`, `wrong_location`, `poor_quality`, `suspicious`, `duplicate`, `other`. "Request info" returns the listing to `draft` with a note.
+- FR-9: Owners can edit content only while `draft` or `rejected`; admins anytime.
+- FR-10: Only `published` listings are publicly visible/discoverable; owners see their own (any status); admins see all.
 
-### 5.2 Property Listings
+### 5.3 Photos (public) & Ownership Documents (private)
+- FR-11: Owners upload public photos to a listing's gallery; remove by publicId. Deletion removes from the listing first, then destroys the remote asset.
+- FR-12: Owners upload **private** ownership documents (image/PDF) stored as Cloudinary *authenticated* resources; each is sha-256 hashed at upload. Documents are never returned in a listing's JSON.
+- FR-13: Document metadata is listable by the owner/admin (without the Cloudinary publicId); the actual file is reachable only via an authz-gated **signed URL** endpoint.
+- FR-14: Admins approve/reject each document. Approving the title deed sets the listing `verificationStatus = verified`, stamps `verifiedBy`/`verifiedAt`, and copies the document hash into `ownershipDocumentHash`.
 
-- FR-5: A listing captures: title, description, listing type (`sale` | `rent`), property category (`residential` | `commercial`), status (`draft` | `published` | `unpublished` | `archived`), price (sale) or monthlyRent + currency (rent), bedrooms, bathrooms, area (value + unit), address (street, city, region, country, postalCode), geolocation (longitude, latitude), amenities (string list), and a photos list.
-- FR-6: Validation rejects out-of-range coordinates, negative prices/areas, and missing type-specific fields (e.g. `monthlyRent` required when type is `rent`).
-- FR-7: Only `published` listings are visible to buyers/renters and in discovery results. Owners/agents see their own non-published listings; admins see all.
-- FR-8: Listings are owned by their creator (`createdBy`) and timestamped.
+### 5.4 Discovery, Audit, Duplicates
+- FR-15: Viewport (bounding-box), radius (point + meters), and attribute filters (type, category, price range, min beds/baths), paginated with total counts.
+- FR-16: Every lifecycle transition and document review writes a queryable `AuditLog` entry (actor, role, action, target, timestamp).
+- FR-17: Admins can fetch non-blocking duplicate warnings for a listing (same owner, or nearby + similar title/postcode).
 
-### 5.3 Photo Upload
+### 5.5 Blockchain-ready (present, mostly unpopulated)
+- FR-18: `Listing` carries `verificationStatus`, `verifiedBy`, `verifiedAt`, `ownershipDocumentHash`, `blockchainTxHash`, `titleCertificateId`, `contractAddress`, `tokenId`. Increment 1 populates only the verification fields; the rest are reserved for Increment 2.
 
-- FR-9: Listing owners can upload one or more images for a listing; images are stored on a CDN and the returned URLs are attached to the listing's photo gallery.
-- FR-10: Uploads are constrained by file type (images only) and a per-file size limit.
-- FR-11: A photo can be removed from a listing's gallery.
+## 6. API Surface (`/api/v1`)
 
-### 5.4 Spatial Discovery
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/auth/register` | — | Register (property_owner \| tenant) |
+| GET | `/listings` | public | Discovery (published only) |
+| GET | `/listings/:id` | optional | Published, or own/admin |
+| GET | `/listings/mine` | owner | Caller's listings (any status) |
+| POST | `/listings` | owner/admin | Create draft |
+| PATCH | `/listings/:id` | owner(draft/rejected)/admin | Edit |
+| DELETE | `/listings/:id` | owner/admin | Delete |
+| POST | `/listings/:id/transition` | owner/admin (per table) | Review state machine |
+| POST · DELETE | `/listings/:id/photos` | owner/admin | Upload / remove public photos |
+| POST · GET | `/listings/:id/documents` | owner/admin | Upload / list private docs |
+| GET | `/listings/:id/documents/:docId/url` | owner/admin | Signed URL |
+| POST | `/listings/:id/documents/:docId/review` | admin | Approve/reject a doc |
+| GET | `/listings/:id/duplicates` | admin | Duplicate warnings |
+| GET | `/admin/listings` | admin | Review queue (status filter) |
+| GET | `/audit-logs` | admin | Query audit trail |
 
-- FR-12: **Viewport search** — return published listings whose location falls within a bounding box (SW/NE corners) supplied by the map.
-- FR-13: **Radius search** — return published listings within a given distance (meters/km) of a point.
-- FR-14: **Attribute filters** — combinable with either spatial mode: listing type, category, price/rent range, min bedrooms, min bathrooms, status (admin/owner only).
-- FR-15: Results are paginated and return total count metadata.
+All responses use the `{ success, message, data }` envelope.
 
-## 6. API Surface (high-level contract)
+## 7. Acceptance Criteria (met)
 
-All responses use the template's `{ success, message, data }` envelope. Base path `/api/v1`.
+- Owner can create a draft, upload private docs, and submit; only an admin can publish. ✅
+- Public/anonymous clients retrieve only published listings; viewport/radius/filters return correct sets. ✅
+- A user cannot modify another's listing (403); a property_owner cannot publish (403); rent without `monthlyRent` is 422. ✅
+- Documents never leak a public URL; signed-URL access is role-gated; non-owners get 403. ✅
+- The audit trail records the full create→submit→…→publish chain. ✅
+- `lint`, `typecheck`, `test` (72 tests), and `build` pass. ✅
 
-| Method | Endpoint               | Auth                   | Purpose                                              |
-| ------ | ---------------------- | ---------------------- | ---------------------------------------------------- |
-| POST   | `/auth/register`       | —                      | Register (role: buyer/agent/owner)                   |
-| POST   | `/listings`            | agent/owner/admin      | Create listing                                       |
-| GET    | `/listings/:id`        | optional               | Get one listing (published, or own/admin)            |
-| PATCH  | `/listings/:id`        | owner of listing/admin | Update listing                                       |
-| DELETE | `/listings/:id`        | owner of listing/admin | Delete listing                                       |
-| POST   | `/listings/:id/status` | owner of listing/admin | Publish/unpublish/archive                            |
-| POST   | `/listings/:id/photos` | owner of listing/admin | Upload photos (multipart)                            |
-| DELETE | `/listings/:id/photos` | owner of listing/admin | Remove a photo by URL/id                             |
-| GET    | `/listings`            | optional               | Discovery: viewport OR radius + filters + pagination |
-| GET    | `/listings/mine`       | agent/owner            | The caller's listings (any status)                   |
+## 8. Technical Notes
 
-## 7. Success Metrics & Acceptance Criteria
+- New `listings` + `audit` modules follow the template's routes → controller → service → model + validation pattern (documented in `CLAUDE.md`).
+- Geolocation: GeoJSON `Point` + `2dsphere` index backing `$geoWithin/$box` (viewport) and `$near` (radius).
+- Cloudinary: public `upload` for photos, `authenticated` for documents; uploads disabled/mocked under `NODE_ENV=test`.
+- New env: `CLOUDINARY_CLOUD_NAME/_API_KEY/_API_SECRET`, `UPLOAD_MAX_BYTES` (validated in `env.ts`).
 
-**Acceptance (Increment 1 is "done" when):**
+## 9. Open Items (resolved)
 
-- A registered owner/agent can create a listing, upload photos, and publish it.
-- A buyer (or anonymous client) can retrieve only published listings.
-- Viewport search returns exactly the published listings within the supplied box and excludes those outside it.
-- Radius search returns published listings ordered by/within the given distance.
-- Attribute filters correctly narrow results and combine with spatial queries.
-- A user cannot modify or delete another user's listing (403); an admin can.
-- Type-specific validation is enforced (rent requires `monthlyRent`, sale requires `price`).
-- All endpoints covered by integration tests against the in-memory MongoDB; lint, typecheck, tests, and build pass in CI.
+- CDN provider: **Cloudinary** (public photos + authenticated private docs).
+- `area` unit: per-listing `sqm|sqft`, default `sqm`. Currency: per-listing ISO code, default `USD`.
 
-**Product metrics (to instrument later):** listings published per active owner, search-to-detail click-through, share of searches using spatial vs. attribute-only.
+## 10. Increment Roadmap
 
-## 8. Technical Considerations (high-level)
-
-- Built as a new `listings` feature module following the template's module pattern (routes → controller → service → model + validation), documented in `CLAUDE.md`.
-- Geolocation stored as GeoJSON `Point` with a MongoDB `2dsphere` index to back `$geoWithin` (viewport) and `$near`/`$geoNear` (radius) queries.
-- Photo upload via multipart middleware streaming to a CDN provider; provider credentials added to the validated env config. Uploads must be disabled/mocked under `NODE_ENV=test`.
-- New roles extend the existing role enum and `authorize()` middleware.
-
-## 9. Increment Roadmap (for context — not built here)
-
-1. **Increment 1 — Marketplace Core (this PRD):** roles, listings, photos, spatial discovery.
-2. **Increment 2 — On-chain titles:** Solidity contracts on a local Hardhat node; mint a digital title NFT for a property and verify ownership; link a listing to its on-chain title.
-3. **Increment 3 — Rental agreements & escrow:** smart-contract lease execution and automated escrow.
-4. **Increment 4 — Agent/Owner portal analytics:** rental-yield tracking, lead analytics, tenant management.
-5. **Increment 5 — Compliance & oversight:** AML vetting, broker-license verification, transaction auditing.
-
-## 10. Open Questions
-
-- CDN provider for photos: Cloudinary (assumed Cloudinary based on prior project artifacts — confirm at plan execution).
-- Unit conventions for `area` (sqm vs sqft) — default sqm, allow per-listing unit.
-- Currency handling — single default currency for the prototype, or per-listing currency code (default: per-listing ISO code).
+1. **Increment 1 — Marketplace Core (this PRD):** roles, listings, review workflow, photos, private documents, discovery, audit. ✅
+2. **Increment 1.5:** favorites/saved properties; tenant→owner inquiries.
+3. **Increment 2 — On-chain titles:** Solidity on local Hardhat; mint a digital title NFT and anchor `ownershipDocumentHash`; populate `tokenId`/`contractAddress`/`blockchainTxHash`.
+4. **Increment 3 — Rental agreements & escrow.**
+5. **Increment 4 — Agent/Owner analytics.**
+6. **Increment 5 — Compliance & oversight** (AML, broker-license, transaction auditing — builds on the audit log).

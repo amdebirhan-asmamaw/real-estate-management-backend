@@ -75,6 +75,12 @@ Validated at startup in [`src/core/config/env.ts`](src/core/config/env.ts). The 
 | `RATE_LIMIT_WINDOW_MS`   | no       | `900000`      | Rate-limit window (ms)                                    |
 | `RATE_LIMIT_MAX`         | no       | `100`         | Max requests per window per IP                            |
 | `TRUST_PROXY`            | no       | `0`           | Number of proxies in front of the app                     |
+| `CLOUDINARY_CLOUD_NAME`  | no\*     | —             | Cloudinary cloud name (photos + private docs)             |
+| `CLOUDINARY_API_KEY`     | no\*     | —             | Cloudinary API key                                        |
+| `CLOUDINARY_API_SECRET`  | no\*     | —             | Cloudinary API secret                                     |
+| `UPLOAD_MAX_BYTES`       | no       | `5242880`     | Max upload size per file (bytes)                          |
+
+\* Optional to boot, but uploads fail fast with `503` until Cloudinary is configured.
 
 ## Project Structure
 
@@ -101,12 +107,37 @@ tests/                     # Jest + Supertest integration tests
 
 Base URL: `/api/v1`
 
-| Method | Endpoint              | Auth | Description                       |
-| ------ | --------------------- | ---- | --------------------------------- |
-| POST   | `/auth/register`      | —    | Create an account, returns tokens |
-| POST   | `/auth/login`         | —    | Log in, returns tokens            |
-| POST   | `/auth/refresh-token` | —    | Exchange a refresh token          |
-| GET    | `/auth/me`            | ✅   | Current user's profile            |
+**Auth**
+
+| Method | Endpoint              | Auth | Description                                          |
+| ------ | --------------------- | ---- | ---------------------------------------------------- |
+| POST   | `/auth/register`      | —    | Create an account (role: `property_owner`\|`tenant`) |
+| POST   | `/auth/login`         | —    | Log in, returns tokens                               |
+| POST   | `/auth/refresh-token` | —    | Exchange a refresh token                             |
+| GET    | `/auth/me`            | ✅   | Current user's profile                               |
+
+**Listings** (real-estate marketplace — Increment 1)
+
+| Method | Endpoint                              | Auth          | Description                                  |
+| ------ | ------------------------------------- | ------------- | -------------------------------------------- |
+| GET    | `/listings`                           | public        | Discovery: viewport/radius + filters         |
+| GET    | `/listings/:id`                       | optional      | Get published, or own/admin                  |
+| GET    | `/listings/mine`                      | owner         | Caller's listings (any status)               |
+| POST   | `/listings`                           | owner/admin   | Create a draft                               |
+| PATCH  | `/listings/:id`                       | owner/admin   | Edit (draft/rejected only for owners)        |
+| DELETE | `/listings/:id`                       | owner/admin   | Delete                                       |
+| POST   | `/listings/:id/transition`            | owner/admin   | Review workflow (submit/approve/publish/…)   |
+| POST   | `/listings/:id/photos`                | owner/admin   | Upload public photos (multipart)             |
+| DELETE | `/listings/:id/photos`                | owner/admin   | Remove a photo                               |
+| POST   | `/listings/:id/documents`             | owner/admin   | Upload private ownership docs (multipart)    |
+| GET    | `/listings/:id/documents`             | owner/admin   | List document metadata                       |
+| GET    | `/listings/:id/documents/:docId/url`  | owner/admin   | Mint a signed URL for a private document     |
+| POST   | `/listings/:id/documents/:docId/review` | admin       | Approve/reject a document                    |
+| GET    | `/listings/:id/duplicates`            | admin         | Non-blocking duplicate warnings              |
+| GET    | `/admin/listings`                     | admin         | Review queue (filter by status)              |
+| GET    | `/audit-logs`                         | admin         | Query the lifecycle audit trail              |
+
+Owners create drafts and **submit** for review; **only admins publish**. See [docs/prd/increment-1-marketplace-core.md](docs/prd/increment-1-marketplace-core.md) for the full workflow.
 
 Plus `GET /health` and `GET /health/ready` at the root.
 
