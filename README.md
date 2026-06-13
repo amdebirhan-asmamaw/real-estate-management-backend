@@ -139,6 +139,20 @@ Base URL: `/api/v1`
 
 Owners create drafts and **submit** for review; **only admins publish**. See [docs/prd/increment-1-marketplace-core.md](docs/prd/increment-1-marketplace-core.md) for the full workflow.
 
+**Favorites & Inquiries** (Increment 1.5)
+
+| Method | Endpoint                  | Auth        | Description                          |
+| ------ | ------------------------- | ----------- | ------------------------------------ |
+| GET    | `/favorites`              | user        | List saved listings                  |
+| POST   | `/favorites`              | user        | Save a listing (`{ listingId }`)     |
+| DELETE | `/favorites/:listingId`   | user        | Unsave a listing                     |
+| POST   | `/inquiries`              | user        | Send an inquiry (`{ listingId, message }`) |
+| GET    | `/inquiries/mine`         | user        | Inquiries the caller sent            |
+| GET    | `/inquiries/received`     | user        | Inquiries on the caller's listings   |
+| PATCH  | `/inquiries/:id`          | owner/admin | Respond / update status              |
+
+See [docs/prd/increment-1.5-favorites-inquiries.md](docs/prd/increment-1.5-favorites-inquiries.md).
+
 Plus `GET /health` and `GET /health/ready` at the root.
 
 All responses follow a consistent envelope:

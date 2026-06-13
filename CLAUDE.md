@@ -59,6 +59,7 @@ This is the backend for a verified, decentralized real-estate platform, built in
 - **Blockchain-ready fields** on `Listing` (`verificationStatus`, `verifiedBy`, `ownershipDocumentHash`, `blockchainTxHash`, `tokenId`, …) are populated now only as far as verification; the rest await Increment 2.
 - **Audit log** (`src/modules/audit/`): every lifecycle transition and document review writes a queryable `AuditLog` entry via best-effort `record()` (failures never break the business op).
 - **Uploader is mockable:** tests `jest.mock("../src/core/utils/uploader", …)` to avoid real Cloudinary calls.
+- **Favorites & inquiries** (`src/modules/favorites`, `src/modules/inquiries`, Increment 1.5): any authenticated user saves/unsaves listings (unique `(user, listing)`) and sends inquiries; both reuse `listing.service.getListingById` to enforce published-only visibility. Inquiries denormalize `listingOwner`; only that owner or an admin may respond/update.
 
 ## Testing
 
