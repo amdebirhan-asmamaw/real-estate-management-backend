@@ -79,8 +79,12 @@ Validated at startup in [`src/core/config/env.ts`](src/core/config/env.ts). The 
 | `CLOUDINARY_API_KEY`     | no\*     | —             | Cloudinary API key                                        |
 | `CLOUDINARY_API_SECRET`  | no\*     | —             | Cloudinary API secret                                     |
 | `UPLOAD_MAX_BYTES`       | no       | `5242880`     | Max upload size per file (bytes)                          |
+| `BLOCKCHAIN_RPC_URL`     | no†      | —             | EVM RPC (e.g. local Hardhat node)                         |
+| `TITLE_CONTRACT_ADDRESS` | no†      | —             | Deployed PropertyTitle contract address                   |
+| `MINTER_PRIVATE_KEY`     | no†      | —             | Custodial minter wallet private key                       |
 
 \* Optional to boot, but uploads fail fast with `503` until Cloudinary is configured.
+† Optional to boot; on-chain title minting/verification fails fast with `503` until configured. The `PropertyTitle` contract lives in the separate `real-estate-contracts` repo — see [docs/prd/increment-2-onchain-titles.md](docs/prd/increment-2-onchain-titles.md).
 
 ## Project Structure
 
@@ -134,6 +138,8 @@ Base URL: `/api/v1`
 | GET    | `/listings/:id/documents/:docId/url`  | owner/admin   | Mint a signed URL for a private document     |
 | POST   | `/listings/:id/documents/:docId/review` | admin       | Approve/reject a document                    |
 | GET    | `/listings/:id/duplicates`            | admin         | Non-blocking duplicate warnings              |
+| POST   | `/listings/:id/mint-title`            | admin         | Mint the on-chain digital title (verified)   |
+| GET    | `/listings/:id/title`                 | optional      | On-chain ownership verification              |
 | GET    | `/admin/listings`                     | admin         | Review queue (filter by status)              |
 | GET    | `/audit-logs`                         | admin         | Query the lifecycle audit trail              |
 
