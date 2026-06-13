@@ -35,6 +35,14 @@ const envSchema = Joi.object({
   // Express "trust proxy" setting. Use the number of proxies in front of the
   // app (e.g. 1 behind a single load balancer / reverse proxy), or 0 to disable.
   TRUST_PROXY: Joi.number().min(0).default(0),
+  // Cloudinary (photo + private document storage). Optional so the app and
+  // tests boot without credentials; the uploader fails fast at runtime if used
+  // while unconfigured.
+  CLOUDINARY_CLOUD_NAME: Joi.string().allow("").default(""),
+  CLOUDINARY_API_KEY: Joi.string().allow("").default(""),
+  CLOUDINARY_API_SECRET: Joi.string().allow("").default(""),
+  // Max upload size per file in bytes (default 5MB).
+  UPLOAD_MAX_BYTES: Joi.number().default(5 * 1024 * 1024),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -64,6 +72,10 @@ interface Env {
   RATE_LIMIT_WINDOW_MS: number;
   RATE_LIMIT_MAX: number;
   TRUST_PROXY: number;
+  CLOUDINARY_CLOUD_NAME: string;
+  CLOUDINARY_API_KEY: string;
+  CLOUDINARY_API_SECRET: string;
+  UPLOAD_MAX_BYTES: number;
 }
 
 const validated = value as Env;
