@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import * as service from "../src/modules/listings/listing.service";
 import { AppError } from "../src/core/utils/AppError";
 import { AuditLog } from "../src/modules/audit/audit.model";
+import { Listing } from "../src/modules/listings/listing.model";
 import type { CreateListingInput } from "../src/modules/listings/listing.validation";
 
 const ownerId = new mongoose.Types.ObjectId().toString();
@@ -18,12 +19,29 @@ const input: CreateListingInput = {
 
 const newListing = () => service.createListing(input, ownerId, "property_owner");
 
+// Simulate a completed ownership verification (approved title deed + hash) so a
+// listing is eligible to be published.
+const markVerified = (id: string) =>
+  Listing.findByIdAndUpdate(id, {
+    verificationStatus: "verified",
+    ownershipDocumentHash: "deadbeef",
+    $push: {
+      documents: {
+        type: "title_deed",
+        publicId: "secret/deed",
+        hash: "deadbeef",
+        status: "approved",
+      },
+    },
+  });
+
 describe("listing transition state machine", () => {
   it("walks the full happy path draft → submitted → under_review → approved → published", async () => {
     const doc = await newListing();
     await service.transition(doc.id, { action: "submit" }, ownerId, "property_owner");
     await service.transition(doc.id, { action: "start_review" }, adminId, "admin");
     await service.transition(doc.id, { action: "approve" }, adminId, "admin");
+    await markVerified(doc.id);
     const published = await service.transition(doc.id, { action: "publish" }, adminId, "admin");
     expect(published.status).toBe("published");
 
@@ -70,11 +88,23 @@ describe("listing transition state machine", () => {
     expect(rejected.review.rejectionReason?.code).toBe("missing_document");
   });
 
+  it("refuses to publish an approved listing whose ownership is not verified", async () => {
+    const doc = await newListing();
+    await service.transition(doc.id, { action: "submit" }, ownerId, "property_owner");
+    await service.transition(doc.id, { action: "start_review" }, adminId, "admin");
+    await service.transition(doc.id, { action: "approve" }, adminId, "admin");
+    // No verified ownership / approved title deed → publish must be blocked.
+    await expect(
+      service.transition(doc.id, { action: "publish" }, adminId, "admin"),
+    ).rejects.toBeInstanceOf(AppError);
+  });
+
   it("allows archive from published", async () => {
     const doc = await newListing();
     await service.transition(doc.id, { action: "submit" }, ownerId, "property_owner");
     await service.transition(doc.id, { action: "start_review" }, adminId, "admin");
     await service.transition(doc.id, { action: "approve" }, adminId, "admin");
+    await markVerified(doc.id);
     await service.transition(doc.id, { action: "publish" }, adminId, "admin");
     const archived = await service.transition(doc.id, { action: "archive" }, adminId, "admin");
     expect(archived.status).toBe("archived");

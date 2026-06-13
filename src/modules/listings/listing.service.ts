@@ -1,5 +1,5 @@
 import { StatusCodes } from "http-status-codes";
-import { Listing, IListing, ListingStatus } from "./listing.model";
+import { Listing, IListing, ListingStatus, DocumentType } from "./listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as chain from "../../core/blockchain/propertyTitle.service";
@@ -224,6 +224,24 @@ export const transition = async (
     );
   }
 
+  // Trust guarantee: a listing may only be published once ownership has been
+  // verified — an approved title deed and an anchored document hash.
+  if (input.action === "publish") {
+    const hasApprovedDeed = listing.documents.some(
+      (d) => d.type === "title_deed" && d.status === "approved",
+    );
+    if (
+      listing.verificationStatus !== "verified" ||
+      !listing.ownershipDocumentHash ||
+      !hasApprovedDeed
+    ) {
+      throw new AppError(
+        "A listing can only be published after ownership is verified (an approved title deed is required)",
+        StatusCodes.CONFLICT,
+      );
+    }
+  }
+
   // Apply side effects per action.
   listing.status = rule.to;
   listing.review.reviewedBy = userId as unknown as IListing["review"]["reviewedBy"];
@@ -423,7 +441,7 @@ export const removePhoto = async (
 // ─── Ownership documents (private) ──────────────────────────────────────────────
 
 interface NewDocument {
-  type: "title_deed" | "id" | "tax_record" | "other";
+  type: DocumentType;
   publicId: string;
   hash: string;
 }

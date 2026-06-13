@@ -94,8 +94,15 @@ export const transitionSchema = Joi.object({
 });
 
 export const documentUploadSchema = Joi.object({
+  // Property-related documents only. Identity (id/passport) belongs to KYC.
   type: Joi.string()
-    .valid("title_deed", "id", "tax_record", "other")
+    .valid(
+      "title_deed",
+      "tax_record",
+      "utility_bill",
+      "ownership_certificate",
+      "other",
+    )
     .default("other"),
 });
 

@@ -19,7 +19,12 @@ export type VerificationStatus =
   | "verified"
   | "rejected";
 
-export type DocumentType = "title_deed" | "id" | "tax_record" | "other";
+export type DocumentType =
+  | "title_deed"
+  | "tax_record"
+  | "utility_bill"
+  | "ownership_certificate"
+  | "other";
 export type DocumentStatus = "pending" | "approved" | "rejected";
 
 export type RejectionCode =
@@ -100,7 +105,13 @@ const photoSchema = new Schema<IPhoto>(
 const documentSchema = new Schema<IOwnershipDocument>({
   type: {
     type: String,
-    enum: ["title_deed", "id", "tax_record", "other"],
+    enum: [
+      "title_deed",
+      "tax_record",
+      "utility_bill",
+      "ownership_certificate",
+      "other",
+    ],
     required: true,
   },
   publicId: { type: String, required: true },

@@ -2,6 +2,7 @@ import {
   createListingSchema,
   discoverySchema,
   transitionSchema,
+  documentUploadSchema,
 } from "../src/modules/listings/listing.validation";
 
 const valid = {
@@ -89,5 +90,21 @@ describe("transitionSchema", () => {
 
   it("rejects an unknown action", () => {
     expect(transitionSchema.validate({ action: "delete" }).error).toBeDefined();
+  });
+});
+
+describe("documentUploadSchema", () => {
+  it("accepts property document types", () => {
+    expect(documentUploadSchema.validate({ type: "utility_bill" }).error).toBeUndefined();
+    expect(documentUploadSchema.validate({ type: "ownership_certificate" }).error).toBeUndefined();
+  });
+
+  it("rejects identity documents (id belongs to KYC, not listings)", () => {
+    expect(documentUploadSchema.validate({ type: "id" }).error).toBeDefined();
+  });
+
+  it("defaults the type to other", () => {
+    const { value } = documentUploadSchema.validate({});
+    expect(value.type).toBe("other");
   });
 });
