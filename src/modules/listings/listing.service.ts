@@ -1,7 +1,9 @@
 import { StatusCodes } from "http-status-codes";
-import { Listing, IListing } from "./listing.model";
+import { Listing, IListing, ListingStatus } from "./listing.model";
 import { AppError } from "../../core/utils/AppError";
-import type { CreateListingInput } from "./listing.validation";
+import * as audit from "../audit/audit.service";
+import type { AuditAction } from "../audit/audit.model";
+import type { CreateListingInput, TransitionInput } from "./listing.validation";
 
 const ADMIN_ROLES = ["admin", "super_admin"];
 
@@ -37,7 +39,17 @@ const findOr404 = async (id: string): Promise<IListing> => {
 export const createListing = async (
   input: CreateListingInput,
   userId: string,
-): Promise<IListing> => Listing.create({ ...input, createdBy: userId });
+  actorRole = "property_owner",
+): Promise<IListing> => {
+  const listing = await Listing.create({ ...input, createdBy: userId });
+  await audit.record({
+    actor: userId,
+    actorRole,
+    action: "listing.created",
+    targetId: listing.id,
+  });
+  return listing;
+};
 
 export const getListingById = async (
   id: string,
@@ -92,3 +104,143 @@ export const listMine = async (userId: string): Promise<IListing[]> =>
 
 // Shared internals reused by later service modules (transitions, photos, docs).
 export const _internal = { findOr404, ensureOwnerOrAdmin, isOwnerOrAdmin };
+
+// ─── Review state machine ───────────────────────────────────────────────────────
+
+const ALL_STATUSES: ListingStatus[] = [
+  "draft",
+  "submitted",
+  "under_review",
+  "approved",
+  "rejected",
+  "published",
+  "suspended",
+  "archived",
+];
+
+type Actor = "owner_or_admin" | "admin_only";
+
+interface TransitionRule {
+  from: ListingStatus[];
+  to: ListingStatus;
+  actor: Actor;
+  audit: AuditAction;
+}
+
+const TRANSITIONS: Record<TransitionInput["action"], TransitionRule> = {
+  submit: {
+    from: ["draft", "rejected"],
+    to: "submitted",
+    actor: "owner_or_admin",
+    audit: "listing.submitted",
+  },
+  start_review: {
+    from: ["submitted"],
+    to: "under_review",
+    actor: "admin_only",
+    audit: "listing.review_started",
+  },
+  request_info: {
+    from: ["submitted", "under_review"],
+    to: "draft",
+    actor: "admin_only",
+    audit: "listing.info_requested",
+  },
+  approve: {
+    from: ["under_review"],
+    to: "approved",
+    actor: "admin_only",
+    audit: "listing.approved",
+  },
+  reject: {
+    from: ["under_review"],
+    to: "rejected",
+    actor: "admin_only",
+    audit: "listing.rejected",
+  },
+  publish: {
+    from: ["approved"],
+    to: "published",
+    actor: "admin_only",
+    audit: "listing.published",
+  },
+  suspend: {
+    from: ["published"],
+    to: "suspended",
+    actor: "admin_only",
+    audit: "listing.suspended",
+  },
+  unsuspend: {
+    from: ["suspended"],
+    to: "published",
+    actor: "admin_only",
+    audit: "listing.unsuspended",
+  },
+  archive: {
+    from: ALL_STATUSES.filter((s) => s !== "archived"),
+    to: "archived",
+    actor: "owner_or_admin",
+    audit: "listing.archived",
+  },
+};
+
+export const transition = async (
+  id: string,
+  input: TransitionInput,
+  userId: string,
+  role: string,
+): Promise<IListing> => {
+  const rule = TRANSITIONS[input.action];
+  if (!rule) {
+    throw new AppError("Unknown transition action", StatusCodes.BAD_REQUEST);
+  }
+
+  const listing = await findOr404(id);
+
+  // Authorization: admin-only actions require an admin; owner actions allow the
+  // listing owner or an admin.
+  if (rule.actor === "admin_only" && !isAdmin(role)) {
+    throw new AppError(
+      "Only an administrator can perform this action",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  if (rule.actor === "owner_or_admin") {
+    ensureOwnerOrAdmin(listing, userId, role);
+  }
+
+  // Legality: is this action allowed from the current status?
+  if (!rule.from.includes(listing.status)) {
+    throw new AppError(
+      `Cannot "${input.action}" a listing in "${listing.status}"`,
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  // Apply side effects per action.
+  listing.status = rule.to;
+  listing.review.reviewedBy = userId as unknown as IListing["review"]["reviewedBy"];
+  listing.review.reviewedAt = new Date();
+
+  if (input.action === "reject") {
+    listing.review.rejectionReason = { code: input.reason!, note: input.note };
+  } else if (input.action === "request_info" || input.action === "suspend") {
+    listing.review.reviewNote = input.note;
+  }
+
+  await listing.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: role,
+    action: rule.audit,
+    targetId: listing.id,
+    metadata: {
+      from: rule.from,
+      to: rule.to,
+      ...(input.reason && { reason: input.reason }),
+    },
+  });
+
+  return listing;
+};
