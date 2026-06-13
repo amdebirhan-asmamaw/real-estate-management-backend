@@ -127,3 +127,42 @@ describe("POST /api/v1/auth/refresh-token", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("registration roles", () => {
+  const registerWith = (body: Record<string, unknown>) =>
+    request(app).post("/api/v1/auth/register").send(body);
+
+  const userBody = (extra: Record<string, unknown>) => ({
+    name: "Role User",
+    password: "Password123",
+    ...extra,
+  });
+
+  it("defaults a new user to the tenant role", async () => {
+    const res = await registerWith(userBody({ email: "tenant@example.com" }));
+    expect(res.status).toBe(201);
+    expect(res.body.data.user.role).toBe("tenant");
+  });
+
+  it("accepts the property_owner role", async () => {
+    const res = await registerWith(
+      userBody({ email: "owner@example.com", role: "property_owner" }),
+    );
+    expect(res.status).toBe(201);
+    expect(res.body.data.user.role).toBe("property_owner");
+  });
+
+  it("rejects self-registration as admin with 422", async () => {
+    const res = await registerWith(
+      userBody({ email: "admin@example.com", role: "admin" }),
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects self-registration as super_admin with 422", async () => {
+    const res = await registerWith(
+      userBody({ email: "super@example.com", role: "super_admin" }),
+    );
+    expect(res.status).toBe(422);
+  });
+});

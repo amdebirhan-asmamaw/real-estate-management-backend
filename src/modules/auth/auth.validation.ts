@@ -20,6 +20,11 @@ export const registerSchema = Joi.object({
       "string.pattern.name": "Password must contain at least one {#name}",
       "any.required": "Password is required",
     }),
+  // Self-registration is limited to public-facing roles. admin/super_admin
+  // are provisioned out-of-band (seed/admin action).
+  role: Joi.string().valid("property_owner", "tenant").default("tenant").messages({
+    "any.only": "role must be one of property_owner, tenant",
+  }),
 });
 
 export const loginSchema = Joi.object({
@@ -43,6 +48,7 @@ export type RegisterInput = {
   name: string;
   email: string;
   password: string;
+  role?: "property_owner" | "tenant";
 };
 
 export type LoginInput = {
