@@ -46,6 +46,29 @@ export const authenticate = (
   }
 };
 
+// Like authenticate, but never rejects: attaches req.user when a valid token is
+// present and silently continues otherwise. Use for endpoints that are public
+// but behave differently for the resource owner (e.g. viewing own draft).
+export const optionalAuthenticate = (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : undefined;
+
+  if (token) {
+    try {
+      req.user = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    } catch {
+      // Ignore invalid tokens for optional auth.
+    }
+  }
+  next();
+};
+
 export const authorize =
   (...roles: string[]) =>
   (req: Request, _res: Response, next: NextFunction): void => {
