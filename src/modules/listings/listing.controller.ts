@@ -236,3 +236,29 @@ export const reviewDocument: Handler = async (req, res, next) => {
     next(error);
   }
 };
+
+export const mintTitle: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.mintTitle(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Title minted");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const title: Handler = async (req, res, next) => {
+  try {
+    const info = await service.getTitleInfo(
+      req.params.id,
+      req.user?.userId ?? null,
+      req.user?.role ?? null,
+    );
+    sendSuccess(res, info, "On-chain title");
+  } catch (error) {
+    next(error);
+  }
+};

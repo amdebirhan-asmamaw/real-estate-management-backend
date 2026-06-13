@@ -62,3 +62,7 @@ listingRouter.post(
 
 // ─── Admin review aids ──────────────────────────────────────────────────────────
 listingRouter.get("/:id/duplicates", authenticate, admins, controller.duplicates);
+
+// ─── On-chain title (Increment 2) ──────────────────────────────────────────────
+listingRouter.post("/:id/mint-title", authenticate, admins, controller.mintTitle);
+listingRouter.get("/:id/title", optionalAuthenticate, controller.title);
