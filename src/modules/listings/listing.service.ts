@@ -3,7 +3,13 @@ import { Listing, IListing, ListingStatus } from "./listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import type { AuditAction } from "../audit/audit.model";
-import type { CreateListingInput, TransitionInput } from "./listing.validation";
+import type { FilterQuery } from "mongoose";
+import type {
+  CreateListingInput,
+  TransitionInput,
+  DiscoveryQuery,
+  AdminListQuery,
+} from "./listing.validation";
 
 const ADMIN_ROLES = ["admin", "super_admin"];
 
@@ -243,4 +249,130 @@ export const transition = async (
   });
 
   return listing;
+};
+
+// ─── Discovery (public) + duplicate detection (admin) ───────────────────────────
+
+export const discover = async (
+  q: DiscoveryQuery,
+): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
+  const filter: FilterQuery<IListing> = { status: "published" };
+
+  if (q.swLng !== undefined) {
+    // Viewport bounding box.
+    filter.location = {
+      $geoWithin: {
+        $box: [
+          [q.swLng, q.swLat],
+          [q.neLng, q.neLat],
+        ],
+      },
+    };
+  } else if (q.lng !== undefined) {
+    // Radius from a point (meters).
+    filter.location = {
+      $near: {
+        $geometry: { type: "Point", coordinates: [q.lng, q.lat] },
+        $maxDistance: q.radius,
+      },
+    };
+  }
+
+  if (q.listingType) filter.listingType = q.listingType;
+  if (q.category) filter.category = q.category;
+  if (q.minBedrooms !== undefined) filter.bedrooms = { $gte: q.minBedrooms };
+  if (q.minBathrooms !== undefined) filter.bathrooms = { $gte: q.minBathrooms };
+
+  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
+    const range: Record<string, number> = {};
+    if (q.minPrice !== undefined) range.$gte = q.minPrice;
+    if (q.maxPrice !== undefined) range.$lte = q.maxPrice;
+    filter.$or = [{ price: range }, { monthlyRent: range }];
+  }
+
+  const skip = (q.page - 1) * q.limit;
+
+  // countDocuments rejects $near, so radius counts strip the geo clause.
+  const [items, total] = await Promise.all([
+    Listing.find(filter).skip(skip).limit(q.limit),
+    Listing.countDocuments(
+      q.lng !== undefined ? { ...filter, location: undefined } : filter,
+    ),
+  ]);
+
+  return { items, total, page: q.page, limit: q.limit };
+};
+
+export const adminList = async (
+  q: AdminListQuery,
+): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
+  const filter: FilterQuery<IListing> = {};
+  if (q.status) filter.status = q.status;
+  const skip = (q.page - 1) * q.limit;
+  const [items, total] = await Promise.all([
+    Listing.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(q.limit),
+    Listing.countDocuments(filter),
+  ]);
+  return { items, total, page: q.page, limit: q.limit };
+};
+
+export interface DuplicateCandidate {
+  id: string;
+  title: string;
+  status: string;
+  reasons: string[];
+}
+
+/**
+ * Non-blocking duplicate warning surfaced to admins at review time. Flags other
+ * listings by the same owner, or nearby listings with a matching title/postcode.
+ */
+export const findDuplicates = async (
+  id: string,
+): Promise<DuplicateCandidate[]> => {
+  const listing = await findOr404(id);
+  const norm = (s?: string): string => (s ?? "").trim().toLowerCase();
+
+  const [sameOwner, nearby] = await Promise.all([
+    Listing.find({
+      _id: { $ne: listing._id },
+      createdBy: listing.createdBy,
+    }).limit(20),
+    Listing.find({
+      _id: { $ne: listing._id },
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: listing.location.coordinates,
+          },
+          $maxDistance: 50, // meters
+        },
+      },
+    }).limit(20),
+  ]);
+
+  const map = new Map<string, DuplicateCandidate>();
+  const add = (l: IListing, reason: string): void => {
+    const entry: DuplicateCandidate = map.get(l.id) ?? {
+      id: l.id,
+      title: l.title,
+      status: l.status,
+      reasons: [],
+    };
+    if (!entry.reasons.includes(reason)) entry.reasons.push(reason);
+    map.set(l.id, entry);
+  };
+
+  sameOwner.forEach((l) => add(l, "same_owner"));
+  nearby
+    .filter(
+      (l) =>
+        norm(l.title) === norm(listing.title) ||
+        (!!listing.address?.postalCode &&
+          l.address?.postalCode === listing.address.postalCode),
+    )
+    .forEach((l) => add(l, "nearby_similar"));
+
+  return Array.from(map.values());
 };
