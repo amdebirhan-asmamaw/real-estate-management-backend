@@ -43,6 +43,12 @@ const envSchema = Joi.object({
   CLOUDINARY_API_SECRET: Joi.string().allow("").default(""),
   // Max upload size per file in bytes (default 5MB).
   UPLOAD_MAX_BYTES: Joi.number().default(5 * 1024 * 1024),
+  // Blockchain (Increment 2 — on-chain property titles). Optional so the app
+  // and tests boot without a chain; the chain service fails fast if used while
+  // unconfigured. MINTER_PRIVATE_KEY is the custodial platform wallet.
+  BLOCKCHAIN_RPC_URL: Joi.string().allow("").default(""),
+  TITLE_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
+  MINTER_PRIVATE_KEY: Joi.string().allow("").default(""),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -76,6 +82,9 @@ interface Env {
   CLOUDINARY_API_KEY: string;
   CLOUDINARY_API_SECRET: string;
   UPLOAD_MAX_BYTES: number;
+  BLOCKCHAIN_RPC_URL: string;
+  TITLE_CONTRACT_ADDRESS: string;
+  MINTER_PRIVATE_KEY: string;
 }
 
 const validated = value as Env;
