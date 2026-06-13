@@ -14,6 +14,7 @@ export const AUDIT_ACTIONS = [
   "document.uploaded",
   "document.approved",
   "document.rejected",
+  "listing.title_minted",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

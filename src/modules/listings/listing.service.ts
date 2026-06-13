@@ -2,6 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import { Listing, IListing, ListingStatus } from "./listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
+import * as chain from "../../core/blockchain/propertyTitle.service";
 import type { AuditAction } from "../audit/audit.model";
 import type { FilterQuery } from "mongoose";
 import type {
@@ -547,4 +548,104 @@ export const reviewDocument = async (
   });
 
   return listing;
+};
+
+// ─── On-chain titles (Increment 2) ──────────────────────────────────────────────
+
+export interface TitleInfo {
+  tokenId: string;
+  contractAddress?: string;
+  owner: string;
+  onChainHash: string;
+  offChainHash?: string;
+  verified: boolean;
+}
+
+/**
+ * Mints a digital title NFT for a verified listing (admin only, explicit
+ * action). Anchors the approved ownership-document hash on-chain and records
+ * the token/tx metadata on the listing. Idempotent guard: refuses if already
+ * minted.
+ */
+export const mintTitle = async (
+  id: string,
+  adminId: string,
+  role: string,
+): Promise<IListing> => {
+  if (!isAdmin(role)) {
+    throw new AppError(
+      "Only an administrator can mint a title",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+
+  const listing = await findOr404(id);
+
+  if (listing.verificationStatus !== "verified") {
+    throw new AppError(
+      "Listing must be verified before a title can be minted",
+      StatusCodes.CONFLICT,
+    );
+  }
+  if (!listing.ownershipDocumentHash) {
+    throw new AppError(
+      "Listing has no anchored ownership-document hash",
+      StatusCodes.CONFLICT,
+    );
+  }
+  if (listing.tokenId) {
+    throw new AppError(
+      "A title has already been minted for this listing",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  const result = await chain.mintTitle({
+    listingId: listing.id,
+    documentHash: listing.ownershipDocumentHash,
+  });
+
+  listing.tokenId = result.tokenId;
+  listing.contractAddress = result.contractAddress;
+  listing.blockchainTxHash = result.txHash;
+  listing.titleCertificateId = `PTITLE-${result.tokenId}`;
+  await listing.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role,
+    action: "listing.title_minted",
+    targetId: listing.id,
+    metadata: { tokenId: result.tokenId, txHash: result.txHash },
+  });
+
+  return listing;
+};
+
+/**
+ * Reads the on-chain title for a listing and compares the anchored hash to the
+ * off-chain document hash. Visible per normal listing visibility rules.
+ */
+export const getTitleInfo = async (
+  id: string,
+  userId: string | null,
+  role: string | null,
+): Promise<TitleInfo> => {
+  const listing = await getListingById(id, userId, role);
+  if (!listing.tokenId) {
+    throw new AppError(
+      "No title has been minted for this listing",
+      StatusCodes.NOT_FOUND,
+    );
+  }
+
+  const onChain = await chain.getTitle(listing.tokenId);
+  return {
+    tokenId: listing.tokenId,
+    contractAddress: listing.contractAddress,
+    owner: onChain.owner,
+    onChainHash: onChain.documentHash,
+    offChainHash: listing.ownershipDocumentHash,
+    verified: onChain.documentHash === listing.ownershipDocumentHash,
+  };
 };
