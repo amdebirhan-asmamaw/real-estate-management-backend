@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes';
-import { User } from './auth.model';
+import { User, IUser, canAuthenticate } from './auth.model';
 import { AppError } from '../../core/utils/AppError';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../core/utils/jwt';
 import type { RegisterInput, LoginInput, RefreshTokenInput } from './auth.validation';
@@ -10,13 +10,18 @@ interface AuthTokens {
   refreshToken: string;
 }
 
+interface PublicUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  accountStatus: string;
+  kycStatus: string;
+  emailVerified: boolean;
+}
+
 interface AuthResult {
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-  };
+  user: PublicUser;
   tokens: AuthTokens;
 }
 
@@ -24,6 +29,30 @@ const buildTokens = (payload: JwtPayload): AuthTokens => ({
   accessToken: signAccessToken(payload),
   refreshToken: signRefreshToken(payload),
 });
+
+const toPublicUser = (user: IUser): PublicUser => ({
+  id: user.id as string,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  accountStatus: user.accountStatus,
+  kycStatus: user.kycStatus,
+  emailVerified: user.emailVerified,
+});
+
+// Translates a non-authenticatable account status into a clear client message.
+const blockedMessage = (status: string): string => {
+  switch (status) {
+    case 'suspended':
+      return 'Account is suspended';
+    case 'blocked':
+      return 'Account is blocked';
+    case 'rejected':
+      return 'Account verification was rejected';
+    default:
+      return 'Account cannot sign in';
+  }
+};
 
 export const register = async (input: RegisterInput): Promise<AuthResult> => {
   const existing = await User.findOne({ email: input.email });
@@ -39,10 +68,7 @@ export const register = async (input: RegisterInput): Promise<AuthResult> => {
     role: user.role,
   };
 
-  return {
-    user: { id: user.id as string, name: user.name, email: user.email, role: user.role },
-    tokens: buildTokens(payload),
-  };
+  return { user: toPublicUser(user), tokens: buildTokens(payload) };
 };
 
 export const login = async (input: LoginInput): Promise<AuthResult> => {
@@ -51,8 +77,8 @@ export const login = async (input: LoginInput): Promise<AuthResult> => {
     throw new AppError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
-  if (!user.isActive) {
-    throw new AppError('Account is deactivated', StatusCodes.FORBIDDEN);
+  if (!canAuthenticate(user.accountStatus)) {
+    throw new AppError(blockedMessage(user.accountStatus), StatusCodes.FORBIDDEN);
   }
 
   const isMatch = await user.comparePassword(input.password);
@@ -66,10 +92,7 @@ export const login = async (input: LoginInput): Promise<AuthResult> => {
     role: user.role,
   };
 
-  return {
-    user: { id: user.id as string, name: user.name, email: user.email, role: user.role },
-    tokens: buildTokens(payload),
-  };
+  return { user: toPublicUser(user), tokens: buildTokens(payload) };
 };
 
 export const refreshTokens = async (input: RefreshTokenInput): Promise<AuthTokens> => {
@@ -81,8 +104,8 @@ export const refreshTokens = async (input: RefreshTokenInput): Promise<AuthToken
   }
 
   const user = await User.findById(decoded.userId);
-  if (!user || !user.isActive) {
-    throw new AppError('User not found or deactivated', StatusCodes.UNAUTHORIZED);
+  if (!user || !canAuthenticate(user.accountStatus)) {
+    throw new AppError('User not found or not allowed to sign in', StatusCodes.UNAUTHORIZED);
   }
 
   const payload: JwtPayload = {
@@ -94,10 +117,10 @@ export const refreshTokens = async (input: RefreshTokenInput): Promise<AuthToken
   return buildTokens(payload);
 };
 
-export const getMe = async (userId: string) => {
+export const getMe = async (userId: string): Promise<PublicUser> => {
   const user = await User.findById(userId);
   if (!user) {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
   }
-  return { id: user.id, name: user.name, email: user.email, role: user.role };
+  return toPublicUser(user);
 };

@@ -1,5 +1,6 @@
 import request from "supertest";
 import app from "../src/app";
+import { User } from "../src/modules/auth/auth.model";
 
 const validUser = {
   name: "Ada Lovelace",
@@ -164,5 +165,44 @@ describe("registration roles", () => {
       userBody({ email: "super@example.com", role: "super_admin" }),
     );
     expect(res.status).toBe(422);
+  });
+
+  it("starts a tenant active and a property_owner pending", async () => {
+    const tenant = await registerWith(userBody({ email: "t1@example.com" }));
+    expect(tenant.body.data.user.accountStatus).toBe("active");
+    expect(tenant.body.data.user.kycStatus).toBe("not_started");
+
+    const owner = await registerWith(
+      userBody({ email: "o1@example.com", role: "property_owner" }),
+    );
+    expect(owner.body.data.user.accountStatus).toBe("pending");
+  });
+});
+
+describe("login account-status gating", () => {
+  const creds = { email: "gated@example.com", password: "Password123" };
+
+  beforeEach(async () => {
+    await request(app)
+      .post("/api/v1/auth/register")
+      .send({ name: "Gated", ...creds, role: "tenant" });
+  });
+
+  it("allows a pending property owner to log in", async () => {
+    await User.updateOne({ email: creds.email }, { accountStatus: "pending" });
+    const res = await request(app).post("/api/v1/auth/login").send(creds);
+    expect(res.status).toBe(200);
+  });
+
+  it("blocks a suspended account with 403", async () => {
+    await User.updateOne({ email: creds.email }, { accountStatus: "suspended" });
+    const res = await request(app).post("/api/v1/auth/login").send(creds);
+    expect(res.status).toBe(403);
+  });
+
+  it("blocks a blocked account with 403", async () => {
+    await User.updateOne({ email: creds.email }, { accountStatus: "blocked" });
+    const res = await request(app).post("/api/v1/auth/login").send(creds);
+    expect(res.status).toBe(403);
   });
 });

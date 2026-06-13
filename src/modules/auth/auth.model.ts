@@ -1,18 +1,66 @@
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export type UserRole = 'super_admin' | 'admin' | 'property_owner' | 'tenant';
+
+export type AccountStatus =
+  | 'pending'
+  | 'active'
+  | 'suspended'
+  | 'blocked'
+  | 'rejected';
+
+export type KycStatus = 'not_started' | 'pending' | 'verified' | 'rejected';
+
+export type KycDocumentType =
+  | 'national_id'
+  | 'passport'
+  | 'drivers_license'
+  | 'other';
+
+export type KycDocumentStatus = 'pending' | 'approved' | 'rejected';
+
+export interface IKycDocument {
+  _id: Types.ObjectId;
+  type: KycDocumentType;
+  publicId: string; // Cloudinary "authenticated" id — server-side only
+  hash: string; // sha256 of the uploaded file
+  status: KycDocumentStatus;
+  uploadedAt: Date;
+}
 
 export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
   role: UserRole;
-  isActive: boolean;
+  accountStatus: AccountStatus;
+  kycStatus: KycStatus;
+  emailVerified: boolean;
+  walletAddress?: string;
+  walletStatus: 'unlinked' | 'linked';
+  kycDocuments: Types.DocumentArray<IKycDocument>;
+  kycReviewNote?: string;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
+
+const kycDocumentSchema = new Schema<IKycDocument>({
+  type: {
+    type: String,
+    enum: ['national_id', 'passport', 'drivers_license', 'other'],
+    required: true,
+  },
+  publicId: { type: String, required: true },
+  hash: { type: String, required: true },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+  },
+  uploadedAt: { type: Date, default: () => new Date() },
+});
 
 const userSchema = new Schema<IUser>(
   {
@@ -41,16 +89,55 @@ const userSchema = new Schema<IUser>(
       enum: ['super_admin', 'admin', 'property_owner', 'tenant'],
       default: 'tenant',
     },
-    isActive: {
-      type: Boolean,
-      default: true,
+    // Account lifecycle. Property owners start `pending` (must pass KYC);
+    // everyone else starts `active`. Set in the pre-validate hook below.
+    accountStatus: {
+      type: String,
+      enum: ['pending', 'active', 'suspended', 'blocked', 'rejected'],
     },
+    kycStatus: {
+      type: String,
+      enum: ['not_started', 'pending', 'verified', 'rejected'],
+      default: 'not_started',
+    },
+    emailVerified: { type: Boolean, default: false },
+    // Groundwork for the later "mint to owner wallet" upgrade (custodial today).
+    walletAddress: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      match: [/^0x[a-fA-F0-9]{40}$/, 'Please provide a valid wallet address'],
+    },
+    walletStatus: {
+      type: String,
+      enum: ['unlinked', 'linked'],
+      default: 'unlinked',
+    },
+    kycDocuments: { type: [kycDocumentSchema], default: [] },
+    kycReviewNote: String,
   },
   {
     timestamps: true,
     versionKey: false,
+    toJSON: {
+      transform: (_doc, ret: Record<string, unknown>) => {
+        // Private KYC documents are never part of a user's JSON.
+        delete ret.kycDocuments;
+        delete ret.password;
+        return ret;
+      },
+    },
   }
 );
+
+// ─── Defaults that depend on role / wallet ──────────────────────────────────────
+userSchema.pre('validate', function (next) {
+  if (this.isNew && !this.accountStatus) {
+    this.accountStatus = this.role === 'property_owner' ? 'pending' : 'active';
+  }
+  this.walletStatus = this.walletAddress ? 'linked' : 'unlinked';
+  next();
+});
 
 // ─── Hash password before save ────────────────────────────────────────────────
 userSchema.pre('save', async function (next) {
@@ -65,5 +152,10 @@ userSchema.methods.comparePassword = async function (
 ): Promise<boolean> {
   return bcrypt.compare(candidatePassword, this.password as string);
 };
+
+// Account statuses that may authenticate (pending users can log in but are
+// limited until KYC clears).
+export const canAuthenticate = (status: AccountStatus): boolean =>
+  status === 'active' || status === 'pending';
 
 export const User = model<IUser>('User', userSchema);
