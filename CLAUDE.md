@@ -46,6 +46,7 @@ Express 4 + TypeScript + MongoDB (Mongoose) REST API, intended as a clonable tem
 - **Auth:** `authenticate` populates `req.user` (typed via the global Express augmentation in `auth.middleware.ts`); `authorize(...roles)` gates by role. Access/refresh tokens use separate secrets.
 - **Logging:** Use the `logger` from `core/utils/logger.ts` (not raw `console`). The HTTP logger redacts a `SENSITIVE_KEYS` list from request bodies — extend that list when adding fields that must never be logged.
 - **Lifecycle:** `app.ts` must stay free of side effects (it's imported directly by tests). DB connection and `listen()` live in `server.ts`, which connects before listening and drains HTTP + Mongo on `SIGTERM`/`SIGINT`.
+- **API docs:** a hand-curated OpenAPI 3 spec lives in `src/core/docs/openapi.ts`, served via `swagger-ui-express` at `/api/docs` (+ raw JSON at `/api/docs.json`), mounted before the rate limiter. When you add or change an endpoint, update that spec; the frontend guide is `docs/FRONTEND_GUIDE.md`.
 
 ## Domain: real-estate marketplace (Increment 1)
 

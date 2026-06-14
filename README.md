@@ -109,6 +109,9 @@ tests/                     # Jest + Supertest integration tests
 
 ## API
 
+**Interactive docs:** Swagger UI at `GET /api/docs`, raw OpenAPI at `GET /api/docs.json`.
+**Frontend integration guide:** [docs/FRONTEND_GUIDE.md](docs/FRONTEND_GUIDE.md).
+
 Base URL: `/api/v1`
 
 **Auth**
