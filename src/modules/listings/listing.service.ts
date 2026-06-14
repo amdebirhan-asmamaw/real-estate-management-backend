@@ -1,5 +1,6 @@
 import { StatusCodes } from "http-status-codes";
 import { Listing, IListing, ListingStatus, DocumentType } from "./listing.model";
+import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as chain from "../../core/blockchain/propertyTitle.service";
@@ -222,6 +223,18 @@ export const transition = async (
       `Cannot "${input.action}" a listing in "${listing.status}"`,
       StatusCodes.CONFLICT,
     );
+  }
+
+  // A property owner must have an active (KYC-verified) account before they can
+  // submit a listing for review. Admins acting on a listing are exempt.
+  if (input.action === "submit" && !isAdmin(role)) {
+    const actor = await User.findById(userId);
+    if (!actor || actor.accountStatus !== "active") {
+      throw new AppError(
+        "Your account must be verified before submitting a listing for review",
+        StatusCodes.FORBIDDEN,
+      );
+    }
   }
 
   // Trust guarantee: a listing may only be published once ownership has been

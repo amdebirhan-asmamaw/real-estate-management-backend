@@ -3,10 +3,23 @@ import * as service from "../src/modules/listings/listing.service";
 import { AppError } from "../src/core/utils/AppError";
 import { AuditLog } from "../src/modules/audit/audit.model";
 import { Listing } from "../src/modules/listings/listing.model";
+import { User } from "../src/modules/auth/auth.model";
 import type { CreateListingInput } from "../src/modules/listings/listing.validation";
 
 const ownerId = new mongoose.Types.ObjectId().toString();
 const adminId = new mongoose.Types.ObjectId().toString();
+
+// The owner must have an active (verified) account to submit for review.
+beforeEach(async () => {
+  await User.create({
+    _id: ownerId,
+    name: "Owner",
+    email: "owner-tx@example.com",
+    password: "Password123",
+    role: "property_owner",
+    accountStatus: "active",
+  });
+});
 
 const input: CreateListingInput = {
   title: "Flat",
@@ -86,6 +99,22 @@ describe("listing transition state machine", () => {
     );
     expect(rejected.status).toBe("rejected");
     expect(rejected.review.rejectionReason?.code).toBe("missing_document");
+  });
+
+  it("forbids a pending (unverified) owner from submitting", async () => {
+    const pendingOwnerId = new mongoose.Types.ObjectId().toString();
+    await User.create({
+      _id: pendingOwnerId,
+      name: "Pending",
+      email: "pending-owner@example.com",
+      password: "Password123",
+      role: "property_owner",
+      accountStatus: "pending",
+    });
+    const doc = await service.createListing(input, pendingOwnerId, "property_owner");
+    await expect(
+      service.transition(doc.id, { action: "submit" }, pendingOwnerId, "property_owner"),
+    ).rejects.toBeInstanceOf(AppError);
   });
 
   it("refuses to publish an approved listing whose ownership is not verified", async () => {

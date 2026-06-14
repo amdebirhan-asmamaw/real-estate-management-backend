@@ -46,6 +46,7 @@ const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 describe("Listings API — verified review lifecycle", () => {
   it("runs owner draft → docs → submit → admin verify/approve/publish → public discovery", async () => {
     const owner = await makeUser("owner1@example.com", "property_owner");
+    await User.updateOne({ email: "owner1@example.com" }, { accountStatus: "active" });
     const admin = await makeAdmin("admin1@example.com");
 
     // Create draft.
@@ -142,6 +143,7 @@ describe("Listings API — verified review lifecycle", () => {
 
   it("forbids a property_owner from publishing their own listing (403)", async () => {
     const owner = await makeUser("owner2@example.com", "property_owner");
+    await User.updateOne({ email: "owner2@example.com" }, { accountStatus: "active" });
     const admin = await makeAdmin("admin2@example.com");
     const created = await request(app)
       .post("/api/v1/listings")
