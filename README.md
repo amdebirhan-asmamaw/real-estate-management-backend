@@ -120,6 +120,20 @@ Base URL: `/api/v1`
 | POST   | `/auth/refresh-token` | —    | Exchange a refresh token                             |
 | GET    | `/auth/me`            | ✅   | Current user's profile                               |
 
+Property owners register as `pending` and must pass KYC before they can submit a listing; tenants are `active` immediately.
+
+**KYC & account management**
+
+| Method | Endpoint                                  | Auth  | Description                          |
+| ------ | ----------------------------------------- | ----- | ------------------------------------ |
+| POST   | `/kyc/documents`                          | user  | Submit private KYC documents         |
+| GET    | `/kyc/me`                                 | user  | Own KYC status + documents           |
+| GET    | `/kyc/documents/:docId/url`               | user  | Signed URL for own KYC document      |
+| PATCH  | `/admin/users/:id/status`                 | admin | Set a user's account status          |
+| GET    | `/admin/users/:id/kyc`                    | admin | A user's KYC status + documents      |
+| POST   | `/admin/users/:id/kyc/review`             | admin | Approve / reject a user's KYC         |
+| GET    | `/admin/users/:id/kyc/documents/:docId/url` | admin | Signed URL for a user's KYC document |
+
 **Listings** (real-estate marketplace — Increment 1)
 
 | Method | Endpoint                              | Auth          | Description                                  |
