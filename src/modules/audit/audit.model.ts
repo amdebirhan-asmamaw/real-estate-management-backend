@@ -15,7 +15,13 @@ export const AUDIT_ACTIONS = [
   "document.approved",
   "document.rejected",
   "listing.title_minted",
+  "user.kyc_submitted",
+  "user.kyc_approved",
+  "user.kyc_rejected",
+  "user.status_changed",
 ] as const;
+
+export type AuditTargetType = "listing" | "user";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -23,7 +29,7 @@ export interface IAuditLog extends Document {
   actor: Types.ObjectId;
   actorRole: string;
   action: AuditAction;
-  targetType: "listing";
+  targetType: AuditTargetType;
   targetId: Types.ObjectId;
   metadata?: Record<string, unknown>;
   createdAt: Date;

@@ -1,4 +1,4 @@
-import { AuditLog, AuditAction } from "./audit.model";
+import { AuditLog, AuditAction, AuditTargetType } from "./audit.model";
 import { logger } from "../../core/utils/logger";
 
 interface RecordInput {
@@ -6,6 +6,7 @@ interface RecordInput {
   actorRole: string;
   action: AuditAction;
   targetId: string;
+  targetType?: AuditTargetType; // defaults to "listing"
   metadata?: Record<string, unknown>;
 }
 
@@ -19,7 +20,7 @@ export const record = async (input: RecordInput): Promise<void> => {
       actor: input.actor,
       actorRole: input.actorRole,
       action: input.action,
-      targetType: "listing",
+      targetType: input.targetType ?? "listing",
       targetId: input.targetId,
       metadata: input.metadata,
     });
