@@ -2,7 +2,21 @@ import { Request, Response, NextFunction } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import * as authService from './auth.service';
 import { sendSuccess, sendCreated } from '../../core/utils/response';
-import type { RegisterInput, LoginInput, RefreshTokenInput } from './auth.validation';
+import type {
+  RegisterInput,
+  LoginInput,
+  RefreshTokenInput,
+  ChangePasswordInput,
+} from './auth.validation';
+
+// Captures user-agent + IP so sessions are attributable in the session list.
+const contextOf = (req: {
+  headers: Request['headers'];
+  ip?: string;
+}): authService.AuthContext => ({
+  userAgent: req.headers['user-agent'],
+  ip: req.ip,
+});
 
 export const register = async (
   req: Request<object, object, RegisterInput>,
@@ -10,7 +24,7 @@ export const register = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const result = await authService.register(req.body);
+    const result = await authService.register(req.body, contextOf(req));
     sendCreated(res, result, 'Account created successfully');
   } catch (error) {
     next(error);
@@ -23,7 +37,7 @@ export const login = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const result = await authService.login(req.body);
+    const result = await authService.login(req.body, contextOf(req));
     sendSuccess(res, result, 'Login successful', StatusCodes.OK);
   } catch (error) {
     next(error);
@@ -36,8 +50,64 @@ export const refreshToken = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const tokens = await authService.refreshTokens(req.body);
+    const tokens = await authService.refreshTokens(req.body, contextOf(req));
     sendSuccess(res, tokens, 'Tokens refreshed');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logout = async (
+  req: Request<object, object, RefreshTokenInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.logout(req.body.refreshToken);
+    sendSuccess(res, null, 'Logged out');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logoutAll = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.logoutAll(req.user!.userId);
+    sendSuccess(res, null, 'Logged out of all sessions');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sessions = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const list = await authService.listSessions(req.user!.userId);
+    sendSuccess(res, list, 'Active sessions');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const changePassword = async (
+  req: Request<object, object, ChangePasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.changePassword(
+      req.user!.userId,
+      req.body.currentPassword,
+      req.body.newPassword
+    );
+    sendSuccess(res, null, 'Password changed; please sign in again');
   } catch (error) {
     next(error);
   }

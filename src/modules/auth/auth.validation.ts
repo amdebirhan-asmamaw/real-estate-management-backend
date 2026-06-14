@@ -43,6 +43,22 @@ export const refreshTokenSchema = Joi.object({
   }),
 });
 
+export const changePasswordSchema = Joi.object({
+  currentPassword: Joi.string().required().messages({
+    "any.required": "Current password is required",
+  }),
+  newPassword: Joi.string()
+    .min(8)
+    .pattern(/[A-Z]/, "uppercase")
+    .pattern(/[0-9]/, "number")
+    .required()
+    .messages({
+      "string.min": "Password must be at least 8 characters",
+      "string.pattern.name": "Password must contain at least one {#name}",
+      "any.required": "New password is required",
+    }),
+});
+
 // Inferred input types
 export type RegisterInput = {
   name: string;
@@ -58,4 +74,9 @@ export type LoginInput = {
 
 export type RefreshTokenInput = {
   refreshToken: string;
+};
+
+export type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
 };
