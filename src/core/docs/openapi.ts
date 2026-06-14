@@ -440,6 +440,70 @@ export const openapiSpec: Record<string, unknown> = {
       },
     },
 
+    "/auth/logout": {
+      post: {
+        tags: ["Auth"],
+        summary: "Revoke a single refresh-token session",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/RefreshInput" },
+            },
+          },
+        },
+        responses: { "200": { description: "Logged out" } },
+      },
+    },
+    "/auth/logout-all": {
+      post: {
+        tags: ["Auth"],
+        summary: "Revoke all of the caller's sessions",
+        security: bearer,
+        responses: {
+          "200": { description: "All sessions revoked" },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/auth/sessions": {
+      get: {
+        tags: ["Auth"],
+        summary: "List the caller's active sessions",
+        security: bearer,
+        responses: { "200": { description: "Active sessions" } },
+      },
+    },
+    "/auth/change-password": {
+      post: {
+        tags: ["Auth"],
+        summary: "Change password (revokes all sessions)",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["currentPassword", "newPassword"],
+                properties: {
+                  currentPassword: { type: "string" },
+                  newPassword: {
+                    type: "string",
+                    description: "≥ 8 chars, 1 uppercase, 1 number",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Password changed; sign in again" },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
     "/kyc/documents": {
       post: {
         tags: ["KYC"],

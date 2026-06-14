@@ -120,8 +120,14 @@ Base URL: `/api/v1`
 | ------ | --------------------- | ---- | ---------------------------------------------------- |
 | POST   | `/auth/register`      | —    | Create an account (role: `property_owner`\|`tenant`) |
 | POST   | `/auth/login`         | —    | Log in, returns tokens                               |
-| POST   | `/auth/refresh-token` | —    | Exchange a refresh token                             |
+| POST   | `/auth/refresh-token` | —    | Exchange + rotate a refresh token                    |
+| POST   | `/auth/logout`        | —    | Revoke one refresh-token session                     |
+| POST   | `/auth/logout-all`    | ✅   | Revoke all of the caller's sessions                  |
+| GET    | `/auth/sessions`      | ✅   | List the caller's active sessions                    |
+| POST   | `/auth/change-password` | ✅ | Change password (revokes all sessions)               |
 | GET    | `/auth/me`            | ✅   | Current user's profile                               |
+
+Refresh tokens are stored hashed and **rotate** on every refresh; reusing a rotated token revokes the whole session family. Keep access tokens short-lived (`JWT_EXPIRES_IN`, e.g. `15m`).
 
 Property owners register as `pending` and must pass KYC before they can submit a listing; tenants are `active` immediately.
 
