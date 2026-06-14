@@ -3,7 +3,7 @@
 **Product:** Decentralized Real Estate Platform
 **Increment:** 2 of N
 **Scope:** Backend chain-integration only. The Solidity/Hardhat contract lives in the separate `real-estate-contracts` repo; this increment delivers the backend that mints and verifies titles against it.
-**Status:** Backend implemented ✅ · contract repo scaffold pending (tracked in the hardening plan)
+**Status:** Backend implemented ✅ · contract repo scaffolded ✅ (`real-estate-contracts`: PropertyTitle.sol, Hardhat tests, deploy + ABI export)
 
 ---
 
@@ -57,6 +57,6 @@ Increment 1 produced a verified off-chain marketplace: an admin reviews a proper
 - Chain service is unit-tested with mocked ethers; mint/verify covered at service and HTTP layers. ✅
 - `lint`, `typecheck`, `test`, `build` pass. ✅
 
-## 8. Remaining for full Increment 2
+## 8. Status
 
-- Scaffold the `real-estate-contracts` Hardhat project (contract, tests, deploy, ABI export), deploy locally, and wire `TITLE_CONTRACT_ADDRESS` + the exported ABI into the backend (hardening plan Phase 3).
+- The `real-estate-contracts` Hardhat project is scaffolded (PropertyTitle.sol, 5 passing tests, deploy + `export-abi` scripts). To run end-to-end against a real chain: start a local node, `npm run deploy:local`, then set `BLOCKCHAIN_RPC_URL` / `TITLE_CONTRACT_ADDRESS` / `MINTER_PRIVATE_KEY` in the backend `.env` (see the contracts repo README). The backend ABI is parity-matched with the compiled ABI.
