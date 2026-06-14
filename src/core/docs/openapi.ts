@@ -1,0 +1,1131 @@
+import { env } from "../config/env";
+
+// Hand-curated OpenAPI 3.0 description of the API. Served as interactive docs at
+// GET /api/docs and as raw JSON at GET /api/docs.json. Keep this in sync with the
+// route definitions; it is the contract the frontend builds against.
+
+const bearer = [{ bearerAuth: [] }];
+
+const envelope = (dataRef?: string) => ({
+  type: "object",
+  properties: {
+    success: { type: "boolean", example: true },
+    message: { type: "string" },
+    ...(dataRef ? { data: { $ref: dataRef } } : { data: {} }),
+  },
+});
+
+export const openapiSpec: Record<string, unknown> = {
+  openapi: "3.0.3",
+  info: {
+    title: "Real Estate Marketplace API",
+    version: "1.0.0",
+    description:
+      "Backend for a verified, decentralized real-estate marketplace. " +
+      "All responses use the envelope `{ success, message, data? }` (errors: " +
+      "`{ success:false, message, errors? }`). Authenticate with a Bearer access token.",
+  },
+  servers: [
+    { url: "/api/v1", description: "Current server (v1)" },
+    {
+      url: `http://localhost:${env.PORT}/api/v1`,
+      description: "Local dev",
+    },
+  ],
+  tags: [
+    { name: "Auth", description: "Registration, login, tokens, profile" },
+    { name: "KYC", description: "Identity verification (self-service)" },
+    { name: "Listings", description: "Property listings & review workflow" },
+    { name: "Discovery", description: "Public geospatial search" },
+    { name: "Media", description: "Photos (public) & ownership documents (private)" },
+    { name: "Titles", description: "On-chain property titles" },
+    { name: "Favorites", description: "Saved listings" },
+    { name: "Inquiries", description: "Tenant → owner inquiries" },
+    { name: "Admin", description: "Admin-only review & user management" },
+    { name: "Health", description: "Liveness / readiness" },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+    },
+    schemas: {
+      ErrorResponse: {
+        type: "object",
+        properties: {
+          success: { type: "boolean", example: false },
+          message: { type: "string", example: "Listing not found" },
+          errors: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string", example: "email" },
+                message: { type: "string", example: "Invalid email address" },
+              },
+            },
+          },
+        },
+      },
+      Tokens: {
+        type: "object",
+        properties: {
+          accessToken: { type: "string" },
+          refreshToken: { type: "string" },
+        },
+      },
+      AuthUser: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          email: { type: "string", format: "email" },
+          role: {
+            type: "string",
+            enum: ["super_admin", "admin", "property_owner", "tenant"],
+          },
+          accountStatus: {
+            type: "string",
+            enum: ["pending", "active", "suspended", "blocked", "rejected"],
+          },
+          kycStatus: {
+            type: "string",
+            enum: ["not_started", "pending", "verified", "rejected"],
+          },
+          emailVerified: { type: "boolean" },
+        },
+      },
+      AuthResult: {
+        type: "object",
+        properties: {
+          user: { $ref: "#/components/schemas/AuthUser" },
+          tokens: { $ref: "#/components/schemas/Tokens" },
+        },
+      },
+      RegisterInput: {
+        type: "object",
+        required: ["name", "email", "password"],
+        properties: {
+          name: { type: "string", minLength: 2, maxLength: 100 },
+          email: { type: "string", format: "email" },
+          password: {
+            type: "string",
+            minLength: 8,
+            description: "≥ 8 chars, at least one uppercase letter and one number",
+          },
+          role: {
+            type: "string",
+            enum: ["property_owner", "tenant"],
+            default: "tenant",
+            description: "Self-registration is limited to these roles",
+          },
+        },
+      },
+      LoginInput: {
+        type: "object",
+        required: ["email", "password"],
+        properties: {
+          email: { type: "string", format: "email" },
+          password: { type: "string" },
+        },
+      },
+      RefreshInput: {
+        type: "object",
+        required: ["refreshToken"],
+        properties: { refreshToken: { type: "string" } },
+      },
+      GeoPoint: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["Point"], default: "Point" },
+          coordinates: {
+            type: "array",
+            items: { type: "number" },
+            minItems: 2,
+            maxItems: 2,
+            example: [13.405, 52.52],
+            description: "[longitude, latitude]",
+          },
+        },
+      },
+      Listing: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          listingType: { type: "string", enum: ["sale", "rent"] },
+          category: { type: "string", enum: ["residential", "commercial"] },
+          status: {
+            type: "string",
+            enum: [
+              "draft",
+              "submitted",
+              "under_review",
+              "approved",
+              "rejected",
+              "published",
+              "suspended",
+              "archived",
+            ],
+          },
+          price: { type: "number" },
+          monthlyRent: { type: "number" },
+          currency: { type: "string", example: "USD" },
+          bedrooms: { type: "integer" },
+          bathrooms: { type: "integer" },
+          area: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+              unit: { type: "string", enum: ["sqm", "sqft"] },
+            },
+          },
+          address: {
+            type: "object",
+            properties: {
+              street: { type: "string" },
+              city: { type: "string" },
+              region: { type: "string" },
+              country: { type: "string" },
+              postalCode: { type: "string" },
+            },
+          },
+          location: { $ref: "#/components/schemas/GeoPoint" },
+          amenities: { type: "array", items: { type: "string" } },
+          photos: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                url: { type: "string" },
+                publicId: { type: "string" },
+              },
+            },
+          },
+          verificationStatus: {
+            type: "string",
+            enum: ["unverified", "pending", "verified", "rejected"],
+          },
+          tokenId: { type: "string", nullable: true },
+          createdBy: { type: "string" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      CreateListingInput: {
+        type: "object",
+        required: ["title", "listingType", "category", "location"],
+        properties: {
+          title: { type: "string", maxLength: 200 },
+          description: { type: "string", maxLength: 5000 },
+          listingType: { type: "string", enum: ["sale", "rent"] },
+          category: { type: "string", enum: ["residential", "commercial"] },
+          price: { type: "number", description: "Required when listingType=sale" },
+          monthlyRent: {
+            type: "number",
+            description: "Required when listingType=rent",
+          },
+          currency: { type: "string", example: "USD" },
+          bedrooms: { type: "integer" },
+          bathrooms: { type: "integer" },
+          area: {
+            type: "object",
+            properties: {
+              value: { type: "number" },
+              unit: { type: "string", enum: ["sqm", "sqft"] },
+            },
+          },
+          address: {
+            type: "object",
+            properties: {
+              street: { type: "string" },
+              city: { type: "string" },
+              region: { type: "string" },
+              country: { type: "string" },
+              postalCode: { type: "string" },
+            },
+          },
+          location: { $ref: "#/components/schemas/GeoPoint" },
+          amenities: { type: "array", items: { type: "string" } },
+        },
+      },
+      TransitionInput: {
+        type: "object",
+        required: ["action"],
+        properties: {
+          action: {
+            type: "string",
+            enum: [
+              "submit",
+              "start_review",
+              "request_info",
+              "approve",
+              "reject",
+              "publish",
+              "suspend",
+              "unsuspend",
+              "archive",
+            ],
+          },
+          reason: {
+            type: "string",
+            enum: [
+              "missing_document",
+              "invalid_ownership_proof",
+              "wrong_location",
+              "poor_quality",
+              "suspicious",
+              "duplicate",
+              "other",
+            ],
+            description: "Required when action=reject",
+          },
+          note: {
+            type: "string",
+            description: "Required when action=request_info or suspend",
+          },
+        },
+      },
+      TitleInfo: {
+        type: "object",
+        properties: {
+          tokenId: { type: "string" },
+          contractAddress: { type: "string" },
+          owner: { type: "string", description: "On-chain owner address" },
+          onChainHash: { type: "string" },
+          offChainHash: { type: "string" },
+          verified: {
+            type: "boolean",
+            description: "true when on-chain and off-chain hashes match",
+          },
+        },
+      },
+      KycSummary: {
+        type: "object",
+        properties: {
+          kycStatus: {
+            type: "string",
+            enum: ["not_started", "pending", "verified", "rejected"],
+          },
+          accountStatus: { type: "string" },
+          reviewNote: { type: "string" },
+          documents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                type: {
+                  type: "string",
+                  enum: ["national_id", "passport", "drivers_license", "other"],
+                },
+                status: {
+                  type: "string",
+                  enum: ["pending", "approved", "rejected"],
+                },
+                hash: { type: "string" },
+                uploadedAt: { type: "string", format: "date-time" },
+              },
+            },
+          },
+        },
+      },
+      Inquiry: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          listing: { type: "string" },
+          listingOwner: { type: "string" },
+          inquirer: { type: "string" },
+          message: { type: "string" },
+          status: { type: "string", enum: ["open", "responded", "closed"] },
+          response: { type: "string" },
+          createdAt: { type: "string", format: "date-time" },
+        },
+      },
+    },
+  },
+  security: [],
+  paths: {
+    "/auth/register": {
+      post: {
+        tags: ["Auth"],
+        summary: "Register a new account",
+        description:
+          "Tenants become active immediately; property owners start `pending` and must pass KYC.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/RegisterInput" },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Created",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/AuthResult"),
+              },
+            },
+          },
+          "409": { $ref: "#/components/responses/Error" },
+          "422": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/auth/login": {
+      post: {
+        tags: ["Auth"],
+        summary: "Log in",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/LoginInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/AuthResult"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": {
+            description: "Account suspended/blocked/rejected",
+          },
+        },
+      },
+    },
+    "/auth/refresh-token": {
+      post: {
+        tags: ["Auth"],
+        summary: "Exchange a refresh token for new tokens",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/RefreshInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "New tokens" },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/auth/me": {
+      get: {
+        tags: ["Auth"],
+        summary: "Current user's profile",
+        security: bearer,
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/AuthUser"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/kyc/documents": {
+      post: {
+        tags: ["KYC"],
+        summary: "Submit private KYC documents",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: ["national_id", "passport", "drivers_license", "other"],
+                  },
+                  documents: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Submitted",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/KycSummary"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/kyc/me": {
+      get: {
+        tags: ["KYC"],
+        summary: "Own KYC status and documents",
+        security: bearer,
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/KycSummary"),
+              },
+            },
+          },
+        },
+      },
+    },
+    "/kyc/documents/{docId}/url": {
+      get: {
+        tags: ["KYC"],
+        summary: "Signed URL for one of your KYC documents",
+        security: bearer,
+        parameters: [
+          {
+            name: "docId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: { "200": { description: "Signed URL" } },
+      },
+    },
+
+    "/listings": {
+      get: {
+        tags: ["Discovery"],
+        summary: "Discover published listings",
+        description:
+          "Public. Use a viewport (swLng/swLat/neLng/neLat) OR a radius (lng/lat/radius), " +
+          "plus optional filters. Returns paginated results.",
+        parameters: [
+          { name: "swLng", in: "query", schema: { type: "number" } },
+          { name: "swLat", in: "query", schema: { type: "number" } },
+          { name: "neLng", in: "query", schema: { type: "number" } },
+          { name: "neLat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "lat", in: "query", schema: { type: "number" } },
+          {
+            name: "radius",
+            in: "query",
+            schema: { type: "number" },
+            description: "Meters from the point",
+          },
+          {
+            name: "listingType",
+            in: "query",
+            schema: { type: "string", enum: ["sale", "rent"] },
+          },
+          {
+            name: "category",
+            in: "query",
+            schema: { type: "string", enum: ["residential", "commercial"] },
+          },
+          { name: "minPrice", in: "query", schema: { type: "number" } },
+          { name: "maxPrice", in: "query", schema: { type: "number" } },
+          { name: "minBedrooms", in: "query", schema: { type: "number" } },
+          { name: "minBathrooms", in: "query", schema: { type: "number" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20, maximum: 100 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated published listings",
+            content: {
+              "application/json": {
+                schema: envelope(),
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Listings"],
+        summary: "Create a draft listing",
+        security: bearer,
+        description: "Roles: property_owner, admin, super_admin.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateListingInput" },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Created (draft)",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Listing"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "422": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/listings/mine": {
+      get: {
+        tags: ["Listings"],
+        summary: "The caller's own listings (any status)",
+        security: bearer,
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/listings/{id}": {
+      parameters: [
+        { name: "id", in: "path", required: true, schema: { type: "string" } },
+      ],
+      get: {
+        tags: ["Listings"],
+        summary: "Get a listing",
+        description:
+          "Published listings are public; unpublished ones are visible only to the owner/admin.",
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Listing"),
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/Error" },
+        },
+      },
+      patch: {
+        tags: ["Listings"],
+        summary: "Edit a listing (owner: only while draft/rejected)",
+        security: bearer,
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateListingInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated" },
+          "403": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        },
+      },
+      delete: {
+        tags: ["Listings"],
+        summary: "Delete a listing",
+        security: bearer,
+        responses: { "200": { description: "Deleted" } },
+      },
+    },
+    "/listings/{id}/transition": {
+      post: {
+        tags: ["Listings"],
+        summary: "Drive the review state machine",
+        description:
+          "Owners: submit, archive. Admins: start_review, request_info, approve, " +
+          "reject, publish, suspend, unsuspend, archive. Publish requires verified ownership.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TransitionInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Transitioned" },
+          "403": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/listings/{id}/photos": {
+      parameters: [
+        { name: "id", in: "path", required: true, schema: { type: "string" } },
+      ],
+      post: {
+        tags: ["Media"],
+        summary: "Upload public photos",
+        security: bearer,
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  photos: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Photos added" } },
+      },
+      delete: {
+        tags: ["Media"],
+        summary: "Remove a photo by publicId",
+        security: bearer,
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["publicId"],
+                properties: { publicId: { type: "string" } },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Removed" } },
+      },
+    },
+    "/listings/{id}/documents": {
+      parameters: [
+        { name: "id", in: "path", required: true, schema: { type: "string" } },
+      ],
+      post: {
+        tags: ["Media"],
+        summary: "Upload private ownership documents",
+        security: bearer,
+        requestBody: {
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: [
+                      "title_deed",
+                      "tax_record",
+                      "utility_bill",
+                      "ownership_certificate",
+                      "other",
+                    ],
+                  },
+                  documents: {
+                    type: "array",
+                    items: { type: "string", format: "binary" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Documents uploaded" } },
+      },
+      get: {
+        tags: ["Media"],
+        summary: "List ownership document metadata (owner/admin)",
+        security: bearer,
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/listings/{id}/documents/{docId}/url": {
+      get: {
+        tags: ["Media"],
+        summary: "Signed URL for a private ownership document",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "docId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: { "200": { description: "Signed URL" } },
+      },
+    },
+    "/listings/{id}/documents/{docId}/review": {
+      post: {
+        tags: ["Admin"],
+        summary: "Approve/reject an ownership document",
+        description: "Approving a title_deed verifies the listing.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "docId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["decision"],
+                properties: {
+                  decision: { type: "string", enum: ["approve", "reject"] },
+                  note: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Reviewed" } },
+      },
+    },
+    "/listings/{id}/duplicates": {
+      get: {
+        tags: ["Admin"],
+        summary: "Potential duplicate listings (warning only)",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/listings/{id}/mint-title": {
+      post: {
+        tags: ["Titles"],
+        summary: "Mint the on-chain digital title (admin, verified listing)",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Minted",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Listing"),
+              },
+            },
+          },
+          "403": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/listings/{id}/title": {
+      get: {
+        tags: ["Titles"],
+        summary: "On-chain ownership verification",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/TitleInfo"),
+              },
+            },
+          },
+          "404": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/favorites": {
+      get: {
+        tags: ["Favorites"],
+        summary: "List the caller's saved listings",
+        security: bearer,
+        responses: { "200": { description: "OK" } },
+      },
+      post: {
+        tags: ["Favorites"],
+        summary: "Save a listing",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId"],
+                properties: { listingId: { type: "string" } },
+              },
+            },
+          },
+        },
+        responses: { "201": { description: "Saved" } },
+      },
+    },
+    "/favorites/{listingId}": {
+      delete: {
+        tags: ["Favorites"],
+        summary: "Unsave a listing",
+        security: bearer,
+        parameters: [
+          {
+            name: "listingId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: { "200": { description: "Removed" } },
+      },
+    },
+
+    "/inquiries": {
+      post: {
+        tags: ["Inquiries"],
+        summary: "Send an inquiry about a published listing",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["listingId", "message"],
+                properties: {
+                  listingId: { type: "string" },
+                  message: { type: "string", maxLength: 2000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Sent",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Inquiry"),
+              },
+            },
+          },
+        },
+      },
+    },
+    "/inquiries/mine": {
+      get: {
+        tags: ["Inquiries"],
+        summary: "Inquiries the caller sent",
+        security: bearer,
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/inquiries/received": {
+      get: {
+        tags: ["Inquiries"],
+        summary: "Inquiries on the caller's listings",
+        security: bearer,
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/inquiries/{id}": {
+      patch: {
+        tags: ["Inquiries"],
+        summary: "Respond to / update an inquiry (owner or admin)",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  status: {
+                    type: "string",
+                    enum: ["open", "responded", "closed"],
+                  },
+                  response: { type: "string", maxLength: 2000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated" },
+          "403": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/admin/listings": {
+      get: {
+        tags: ["Admin"],
+        summary: "Review queue (filter by status)",
+        security: bearer,
+        parameters: [
+          {
+            name: "status",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "draft",
+                "submitted",
+                "under_review",
+                "approved",
+                "rejected",
+                "published",
+                "suspended",
+                "archived",
+              ],
+            },
+          },
+          { name: "page", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/admin/users/{id}/status": {
+      patch: {
+        tags: ["Admin"],
+        summary: "Set a user's account status",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["accountStatus"],
+                properties: {
+                  accountStatus: {
+                    type: "string",
+                    enum: [
+                      "pending",
+                      "active",
+                      "suspended",
+                      "blocked",
+                      "rejected",
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Updated" } },
+      },
+    },
+    "/admin/users/{id}/kyc": {
+      get: {
+        tags: ["Admin"],
+        summary: "A user's KYC status and documents",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "OK" } },
+      },
+    },
+    "/admin/users/{id}/kyc/review": {
+      post: {
+        tags: ["Admin"],
+        summary: "Approve/reject a user's KYC",
+        description: "Approval verifies the user and activates the account.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["decision"],
+                properties: {
+                  decision: { type: "string", enum: ["approve", "reject"] },
+                  note: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: { "200": { description: "Reviewed" } },
+      },
+    },
+    "/admin/users/{id}/kyc/documents/{docId}/url": {
+      get: {
+        tags: ["Admin"],
+        summary: "Signed URL for a user's KYC document",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "docId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: { "200": { description: "Signed URL" } },
+      },
+    },
+    "/audit-logs": {
+      get: {
+        tags: ["Admin"],
+        summary: "Query the lifecycle audit trail",
+        security: bearer,
+        parameters: [
+          { name: "targetId", in: "query", schema: { type: "string" } },
+          { name: "action", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { "200": { description: "OK" } },
+      },
+    },
+  },
+};
+
+// Shared response refs (declared after the object to keep paths readable).
+(openapiSpec.components as Record<string, unknown>).responses = {
+  Error: {
+    description: "Error",
+    content: {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ErrorResponse" },
+      },
+    },
+  },
+};

@@ -5,8 +5,10 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import mongoose from "mongoose";
+import swaggerUi from "swagger-ui-express";
 
 import { env } from "./core/config/env";
+import { openapiSpec } from "./core/docs/openapi";
 import { errorHandler } from "./core/middleware/error.middleware";
 import { notFoundHandler } from "./core/middleware/notFound.middleware";
 import { httpLogger } from "./core/middleware/httpLogger.middleware";
@@ -57,6 +59,11 @@ app.get("/health/ready", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// ─── API Docs (Swagger UI) ──────────────────────────────────────────────────────
+// Mounted before the rate limiter so the docs assets aren't throttled.
+app.get("/api/docs.json", (_req, res) => res.json(openapiSpec));
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api", apiLimiter);
