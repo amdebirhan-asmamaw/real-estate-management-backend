@@ -1,3 +1,11 @@
+jest.mock("../src/core/config/env", () => ({
+  env: {
+    CLOUDINARY_CLOUD_NAME: "test-cloud",
+    CLOUDINARY_API_KEY: "test-key",
+    CLOUDINARY_API_SECRET: "test-secret",
+  },
+}));
+
 jest.mock("cloudinary", () => ({
   v2: {
     config: jest.fn(),
