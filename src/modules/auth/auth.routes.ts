@@ -8,6 +8,8 @@ import {
   loginSchema,
   refreshTokenSchema,
   changePasswordSchema,
+  walletChallengeSchema,
+  walletLinkSchema,
 } from './auth.validation';
 
 export const authRouter = Router();
@@ -28,3 +30,16 @@ authRouter.post(
   validate(changePasswordSchema),
   authController.changePassword
 );
+authRouter.post(
+  '/wallet/challenge',
+  authenticate,
+  validate(walletChallengeSchema),
+  authController.walletChallenge
+);
+authRouter.post(
+  '/wallet/link',
+  authenticate,
+  validate(walletLinkSchema),
+  authController.linkWallet
+);
+authRouter.delete('/wallet', authenticate, authController.unlinkWallet);

@@ -1,4 +1,5 @@
 import request from "supertest";
+import { Wallet } from "ethers";
 import app from "../src/app";
 import { User } from "../src/modules/auth/auth.model";
 
@@ -204,5 +205,87 @@ describe("login account-status gating", () => {
     await User.updateOne({ email: creds.email }, { accountStatus: "blocked" });
     const res = await request(app).post("/api/v1/auth/login").send(creds);
     expect(res.status).toBe(403);
+  });
+});
+
+describe("wallet linking", () => {
+  const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  it("links and unlinks a wallet after signature verification", async () => {
+    const wallet = Wallet.createRandom();
+    const { body } = await register({ email: "wallet@example.com" });
+    const token = body.data.tokens.accessToken;
+
+    const challenge = await request(app)
+      .post("/api/v1/auth/wallet/challenge")
+      .set(bearer(token))
+      .send({ walletAddress: wallet.address });
+
+    expect(challenge.status).toBe(200);
+    expect(challenge.body.data.walletAddress).toBe(wallet.address.toLowerCase());
+    expect(challenge.body.data.message).toContain("Real Estate Marketplace wallet linking");
+
+    const signature = await wallet.signMessage(challenge.body.data.message);
+    const linked = await request(app)
+      .post("/api/v1/auth/wallet/link")
+      .set(bearer(token))
+      .send({ walletAddress: wallet.address, signature });
+
+    expect(linked.status).toBe(200);
+    expect(linked.body.data.walletStatus).toBe("linked");
+    expect(linked.body.data.walletAddress).toBe(wallet.address.toLowerCase());
+    expect(linked.body.data).not.toHaveProperty("walletLinkChallenge");
+
+    const me = await request(app).get("/api/v1/auth/me").set(bearer(token));
+    expect(me.body.data.walletStatus).toBe("linked");
+
+    const unlinked = await request(app)
+      .delete("/api/v1/auth/wallet")
+      .set(bearer(token));
+
+    expect(unlinked.status).toBe(200);
+    expect(unlinked.body.data.walletStatus).toBe("unlinked");
+    expect(unlinked.body.data.walletAddress).toBeUndefined();
+  });
+
+  it("rejects a signature from a different wallet", async () => {
+    const wallet = Wallet.createRandom();
+    const signer = Wallet.createRandom();
+    const { body } = await register({ email: "badwallet@example.com" });
+    const token = body.data.tokens.accessToken;
+
+    const challenge = await request(app)
+      .post("/api/v1/auth/wallet/challenge")
+      .set(bearer(token))
+      .send({ walletAddress: wallet.address });
+
+    const signature = await signer.signMessage(challenge.body.data.message);
+    const linked = await request(app)
+      .post("/api/v1/auth/wallet/link")
+      .set(bearer(token))
+      .send({ walletAddress: wallet.address, signature });
+
+    expect(linked.status).toBe(401);
+  });
+
+  it("prevents one wallet from being linked to two users", async () => {
+    const wallet = Wallet.createRandom();
+    const first = await register({ email: "wallet-one@example.com" });
+    const second = await register({ email: "wallet-two@example.com" });
+
+    const linkFor = async (token: string) => {
+      const challenge = await request(app)
+        .post("/api/v1/auth/wallet/challenge")
+        .set(bearer(token))
+        .send({ walletAddress: wallet.address });
+      const signature = await wallet.signMessage(challenge.body.data.message);
+      return request(app)
+        .post("/api/v1/auth/wallet/link")
+        .set(bearer(token))
+        .send({ walletAddress: wallet.address, signature });
+    };
+
+    expect((await linkFor(first.body.data.tokens.accessToken)).status).toBe(200);
+    expect((await linkFor(second.body.data.tokens.accessToken)).status).toBe(409);
   });
 });

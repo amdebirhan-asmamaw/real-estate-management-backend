@@ -2,6 +2,8 @@ import { Schema, model, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export type UserRole = 'super_admin' | 'admin' | 'property_owner' | 'tenant';
+export const USER_ROLES = ['super_admin', 'admin', 'property_owner', 'tenant'] as const;
+export const PUBLIC_REGISTRATION_ROLES = ['property_owner', 'tenant'] as const;
 
 export type AccountStatus =
   | 'pending'
@@ -29,6 +31,13 @@ export interface IKycDocument {
   uploadedAt: Date;
 }
 
+export interface IWalletLinkChallenge {
+  walletAddress: string;
+  nonceHash: string;
+  message: string;
+  expiresAt: Date;
+}
+
 export interface IUser extends Document {
   name: string;
   email: string;
@@ -39,6 +48,7 @@ export interface IUser extends Document {
   emailVerified: boolean;
   walletAddress?: string;
   walletStatus: 'unlinked' | 'linked';
+  walletLinkChallenge?: IWalletLinkChallenge;
   kycDocuments: Types.DocumentArray<IKycDocument>;
   kycReviewNote?: string;
   createdAt: Date;
@@ -61,6 +71,22 @@ const kycDocumentSchema = new Schema<IKycDocument>({
   },
   uploadedAt: { type: Date, default: () => new Date() },
 });
+
+const walletLinkChallengeSchema = new Schema<IWalletLinkChallenge>(
+  {
+    walletAddress: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      match: [/^0x[a-fA-F0-9]{40}$/, 'Please provide a valid wallet address'],
+    },
+    nonceHash: { type: String, required: true },
+    message: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
 
 const userSchema = new Schema<IUser>(
   {
@@ -113,6 +139,7 @@ const userSchema = new Schema<IUser>(
       enum: ['unlinked', 'linked'],
       default: 'unlinked',
     },
+    walletLinkChallenge: walletLinkChallengeSchema,
     kycDocuments: { type: [kycDocumentSchema], default: [] },
     kycReviewNote: String,
   },
@@ -123,6 +150,7 @@ const userSchema = new Schema<IUser>(
       transform: (_doc, ret: Record<string, unknown>) => {
         // Private KYC documents are never part of a user's JSON.
         delete ret.kycDocuments;
+        delete ret.walletLinkChallenge;
         delete ret.password;
         return ret;
       },

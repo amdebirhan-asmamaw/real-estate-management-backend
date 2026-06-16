@@ -1,5 +1,6 @@
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { StatusCodes } from 'http-status-codes';
+import { getAddress, verifyMessage } from 'ethers';
 import { User, IUser, canAuthenticate } from './auth.model';
 import { RefreshSession, IRefreshSession } from './session.model';
 import { AppError } from '../../core/utils/AppError';
@@ -26,6 +27,8 @@ interface PublicUser {
   accountStatus: string;
   kycStatus: string;
   emailVerified: boolean;
+  walletAddress?: string;
+  walletStatus: string;
 }
 
 interface AuthResult {
@@ -45,6 +48,15 @@ const buildTokens = (payload: JwtPayload): AuthTokens => ({
 });
 
 const hashToken = (token: string): string => sha256(Buffer.from(token));
+const hashNonce = (nonce: string): string => sha256(Buffer.from(nonce));
+
+const normalizeWalletAddress = (walletAddress: string): string => {
+  try {
+    return getAddress(walletAddress).toLowerCase();
+  } catch {
+    throw new AppError('Invalid wallet address', StatusCodes.BAD_REQUEST);
+  }
+};
 
 const toPublicUser = (user: IUser): PublicUser => ({
   id: user.id as string,
@@ -54,6 +66,8 @@ const toPublicUser = (user: IUser): PublicUser => ({
   accountStatus: user.accountStatus,
   kycStatus: user.kycStatus,
   emailVerified: user.emailVerified,
+  walletAddress: user.walletAddress,
+  walletStatus: user.walletStatus,
 });
 
 const blockedMessage = (status: string): string => {
@@ -259,5 +273,124 @@ export const getMe = async (userId: string): Promise<PublicUser> => {
   if (!user) {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
   }
+  return toPublicUser(user);
+};
+
+export interface WalletChallenge {
+  walletAddress: string;
+  message: string;
+  expiresAt: Date;
+}
+
+const buildWalletLinkMessage = (
+  user: IUser,
+  walletAddress: string,
+  nonce: string,
+  expiresAt: Date,
+): string =>
+  [
+    'Real Estate Marketplace wallet linking',
+    '',
+    `User: ${user.id}`,
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Expires At: ${expiresAt.toISOString()}`,
+  ].join('\n');
+
+export const createWalletChallenge = async (
+  userId: string,
+  walletAddress: string,
+): Promise<WalletChallenge> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  const normalized = normalizeWalletAddress(walletAddress);
+  const nonce = randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const message = buildWalletLinkMessage(user, normalized, nonce, expiresAt);
+
+  user.walletLinkChallenge = {
+    walletAddress: normalized,
+    nonceHash: hashNonce(nonce),
+    message,
+    expiresAt,
+  };
+  await user.save();
+
+  return { walletAddress: normalized, message, expiresAt };
+};
+
+export const linkWallet = async (
+  userId: string,
+  walletAddress: string,
+  signature: string,
+): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  const normalized = normalizeWalletAddress(walletAddress);
+  const challenge = user.walletLinkChallenge;
+  if (!challenge) {
+    throw new AppError('No active wallet challenge', StatusCodes.CONFLICT);
+  }
+  if (challenge.expiresAt.getTime() < Date.now()) {
+    user.walletLinkChallenge = undefined;
+    await user.save();
+    throw new AppError('Wallet challenge expired', StatusCodes.CONFLICT);
+  }
+  if (challenge.walletAddress !== normalized) {
+    throw new AppError(
+      'Wallet address does not match the active challenge',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  let recovered: string;
+  try {
+    recovered = verifyMessage(challenge.message, signature).toLowerCase();
+  } catch {
+    throw new AppError('Invalid wallet signature', StatusCodes.UNAUTHORIZED);
+  }
+  if (recovered !== normalized) {
+    throw new AppError(
+      'Wallet signature does not match walletAddress',
+      StatusCodes.UNAUTHORIZED,
+    );
+  }
+
+  const existing = await User.findOne({
+    _id: { $ne: user._id },
+    walletAddress: normalized,
+  });
+  if (existing) {
+    throw new AppError(
+      'Wallet address is already linked to another account',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.walletAddress = normalized;
+  user.walletStatus = 'linked';
+  user.walletLinkChallenge = undefined;
+  await user.save();
+
+  return toPublicUser(user);
+};
+
+export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  user.walletAddress = undefined;
+  user.walletStatus = 'unlinked';
+  user.walletLinkChallenge = undefined;
+  await user.save();
+
   return toPublicUser(user);
 };
