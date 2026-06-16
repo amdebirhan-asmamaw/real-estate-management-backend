@@ -52,6 +52,9 @@ export const createLease = async (
   if (listing.listingType !== "rent") {
     throw new AppError("Leases require a rent listing", StatusCodes.BAD_REQUEST);
   }
+  if (listing.status !== "published") {
+    throw new AppError("Leases require a published listing", StatusCodes.BAD_REQUEST);
+  }
   if (!isAdmin(actorRole) && listing.createdBy.toString() !== userId) {
     throw new AppError("Only the listing owner may create a lease", StatusCodes.FORBIDDEN);
   }
@@ -108,6 +111,12 @@ export const propose = async (
   return lease;
 };
 
+// NOTE: each money-moving transition calls the chain BEFORE persisting the new
+// lease/escrow state. In this custodial design that's an accepted trade-off —
+// funds are never lost, only the record could lag if the DB write fails after a
+// mined tx. The DB escrow sub-state (none/funded/active/closed) guards against
+// re-issuing a transition (e.g. double-fund), and getEscrow() exposes the
+// on-chain truth for a future reconciliation job. See CLAUDE.md.
 export const fund = async (
   id: string, userId: string, role: string,
 ): Promise<ILease> => {
