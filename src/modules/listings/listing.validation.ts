@@ -34,6 +34,32 @@ const location = Joi.object({
   coordinates: coordinates.required(),
 });
 
+const polygon = Joi.string().custom((value, helpers) => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length < 4 ||
+      !parsed.every(
+        (point) =>
+          Array.isArray(point) &&
+          point.length === 2 &&
+          typeof point[0] === "number" &&
+          typeof point[1] === "number" &&
+          point[0] >= -180 &&
+          point[0] <= 180 &&
+          point[1] >= -90 &&
+          point[1] <= 90,
+      )
+    ) {
+      return helpers.error("any.invalid");
+    }
+    return parsed;
+  } catch {
+    return helpers.error("any.invalid");
+  }
+}, "polygon parser");
+
 export const createListingSchema = Joi.object({
   title: Joi.string().max(200).required(),
   description: Joi.string().max(5000).allow(""),
@@ -121,6 +147,8 @@ export const discoverySchema = Joi.object({
   lng: Joi.number().min(-180).max(180),
   lat: Joi.number().min(-90).max(90),
   radius: Joi.number().positive(),
+  // Custom drawn boundary as JSON: [[lng,lat],[lng,lat],...].
+  polygon,
   // Filters
   listingType: Joi.string().valid("sale", "rent"),
   category: Joi.string().valid("residential", "commercial"),
@@ -134,7 +162,7 @@ export const discoverySchema = Joi.object({
 })
   .and("swLng", "swLat", "neLng", "neLat")
   .and("lng", "lat", "radius")
-  .nand("swLng", "lng"); // cannot use both spatial modes at once
+  .oxor("swLng", "lng", "polygon"); // cannot use multiple spatial modes
 
 export const adminListSchema = Joi.object({
   status: Joi.string().valid(
@@ -189,6 +217,7 @@ export type DiscoveryQuery = {
   lng?: number;
   lat?: number;
   radius?: number;
+  polygon?: [number, number][];
   listingType?: "sale" | "rent";
   category?: "residential" | "commercial";
   minPrice?: number;

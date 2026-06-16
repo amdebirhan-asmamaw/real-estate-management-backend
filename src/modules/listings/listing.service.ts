@@ -318,6 +318,13 @@ export const discover = async (
         ],
       },
     };
+  } else if (q.polygon !== undefined) {
+    // Custom drawn boundary.
+    filter.location = {
+      $geoWithin: {
+        $polygon: q.polygon,
+      },
+    };
   } else if (q.lng !== undefined) {
     // Radius from a point (meters).
     filter.location = {

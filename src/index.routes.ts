@@ -10,6 +10,7 @@ import { userAdminRouter } from "./modules/kyc/kyc.admin.routes";
 import { leaseRouter } from "./modules/leases/lease.routes";
 import { chainTransactionRouter } from "./modules/chainTransactions/chainTransaction.routes";
 import { notificationRouter } from "./modules/notifications/notification.routes";
+import { savedSearchRouter } from "./modules/savedSearches/savedSearch.routes";
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.use("/kyc", kycRouter);
 router.use("/leases", leaseRouter);
 router.use("/chain-transactions", chainTransactionRouter);
 router.use("/notifications", notificationRouter);
+router.use("/saved-searches", savedSearchRouter);
 
 // Register new module routers here:
 

@@ -58,6 +58,26 @@ describe("discover", () => {
     expect(items).toHaveLength(1);
     expect(items[0].monthlyRent).toBe(800);
   });
+
+  it("returns listings inside a custom polygon boundary", async () => {
+    await make([13.4, 52.5]);
+    await make([13.8, 52.9]);
+
+    const { items, total } = await discover({
+      polygon: [
+        [13.3, 52.4],
+        [13.5, 52.4],
+        [13.5, 52.6],
+        [13.3, 52.6],
+      ],
+      page: 1,
+      limit: 20,
+    });
+
+    expect(total).toBe(1);
+    expect(items).toHaveLength(1);
+    expect(items[0].location.coordinates[0]).toBeCloseTo(13.4);
+  });
 });
 
 describe("findDuplicates", () => {
