@@ -4,6 +4,7 @@ import { AppError } from "../../core/utils/AppError";
 import { signedUrl } from "../../core/utils/uploader";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
+import * as compliance from "../compliance/compliance.service";
 
 const isAdminRole = (role: string | null): boolean =>
   role === "admin" || role === "super_admin";
@@ -166,6 +167,10 @@ export const reviewKyc = async (
         : "Your account verification was rejected. Please review the note and resubmit.",
     metadata: { note },
   });
+
+  if (decision === "reject") {
+    await compliance.flagKycRejection(targetUserId, note);
+  }
 
   return summarize(user);
 };

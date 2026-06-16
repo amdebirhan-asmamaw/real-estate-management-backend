@@ -10,6 +10,7 @@ import * as audit from "../audit/audit.service";
 import * as escrow from "../../core/blockchain/leaseEscrow.service";
 import * as chainTransactions from "../chainTransactions/chainTransaction.service";
 import * as notifications from "../notifications/notification.service";
+import * as compliance from "../compliance/compliance.service";
 import type { ChainTransactionOperation } from "../chainTransactions/chainTransaction.model";
 import type { CreateLeaseInput, DisputeResolveInput } from "./lease.validation";
 
@@ -431,6 +432,11 @@ export const dispute = async (
     "Lease disputed",
     "A dispute was opened for this lease.",
   );
+  await compliance.flagLeaseDispute({
+    leaseId: lease.id,
+    landlordId: lease.landlord.toString(),
+    tenantId: lease.tenant.toString(),
+  });
   return lease;
 };
 

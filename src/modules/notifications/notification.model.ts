@@ -23,6 +23,8 @@ export const NOTIFICATION_TYPES = [
   "offer.responded",
   // Leases
   "lease.status_update",
+  // Compliance
+  "compliance.case_update",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

@@ -4,6 +4,7 @@ import { Listing } from "../listings/listing.model";
 import { AppError } from "../../core/utils/AppError";
 import { isAdmin } from "../listings/listing.service";
 import * as notifications from "../notifications/notification.service";
+import * as compliance from "../compliance/compliance.service";
 import type { CreateOfferInput, RespondOfferInput } from "./offer.validation";
 
 const findOr404 = async (id: string): Promise<IOffer> => {
@@ -44,6 +45,13 @@ export const createOffer = async (
     title: "New purchase offer",
     message: `A buyer submitted an offer for "${listing.title}".`,
     metadata: { listingId: listing.id, offerId: offer.id },
+  });
+
+  await compliance.flagOfferIfHighRisk({
+    offerId: offer.id,
+    buyerId,
+    amount: offer.amount,
+    currency: offer.currency,
   });
 
   return offer;

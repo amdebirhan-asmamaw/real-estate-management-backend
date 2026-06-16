@@ -58,9 +58,12 @@ export const AUDIT_ACTIONS = [
   "lease.terminated",
   "lease.disputed",
   "lease.dispute_resolved",
+  // Compliance
+  "compliance.case_created",
+  "compliance.case_updated",
 ] as const;
 
-export type AuditTargetType = "listing" | "user" | "lease" | "admin";
+export type AuditTargetType = "listing" | "user" | "lease" | "admin" | "compliance";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
