@@ -22,8 +22,6 @@ authRouter.post('/register', authLimiter, validate(registerSchema), authControll
 authRouter.post('/login', authLimiter, validate(loginSchema), authController.login);
 authRouter.post('/refresh-token', authLimiter, validate(refreshTokenSchema), authController.refreshToken);
 authRouter.post('/logout', validate(refreshTokenSchema), authController.logout);
-
-// Password recovery (public, stricter rate limit)
 authRouter.post(
   '/forgot-password',
   passwordResetLimiter,
@@ -39,6 +37,7 @@ authRouter.post(
 
 // Protected routes
 authRouter.get('/me', authenticate, authController.getMe);
+authRouter.patch('/me', authenticate, validate(updateProfileSchema), authController.updateProfile);
 authRouter.patch(
   '/profile',
   authenticate,

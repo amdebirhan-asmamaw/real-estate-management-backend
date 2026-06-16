@@ -100,6 +100,8 @@ export const openapiSpec: Record<string, unknown> = {
             enum: ["not_started", "pending", "verified", "rejected"],
           },
           emailVerified: { type: "boolean" },
+          walletAddress: { type: "string", nullable: true },
+          walletStatus: { type: "string", enum: ["unlinked", "linked"] },
         },
       },
       AuthResult: {
@@ -140,6 +142,32 @@ export const openapiSpec: Record<string, unknown> = {
         type: "object",
         required: ["refreshToken"],
         properties: { refreshToken: { type: "string" } },
+      },
+      UpdateProfileInput: {
+        type: "object",
+        properties: {
+          name: { type: "string", minLength: 2, maxLength: 100 },
+          walletAddress: {
+            type: "string",
+            description: "EVM wallet address. Send an empty string to unlink.",
+          },
+        },
+      },
+      ForgotPasswordInput: {
+        type: "object",
+        required: ["email"],
+        properties: { email: { type: "string", format: "email" } },
+      },
+      ResetPasswordInput: {
+        type: "object",
+        required: ["token", "newPassword"],
+        properties: {
+          token: { type: "string" },
+          newPassword: {
+            type: "string",
+            description: "≥ 8 chars, at least one uppercase letter and one number",
+          },
+        },
       },
       GeoPoint: {
         type: "object",
@@ -698,6 +726,76 @@ export const openapiSpec: Record<string, unknown> = {
             },
           },
           "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+      patch: {
+        tags: ["Auth"],
+        summary: "Update current user's profile",
+        description:
+          "Updates safe profile fields. Email changes require a separate verified-email flow.",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/UpdateProfileInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Updated",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/AuthUser"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "422": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/auth/forgot-password": {
+      post: {
+        tags: ["Auth"],
+        summary: "Request password reset email",
+        description:
+          "Always returns success so account existence is not exposed.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ForgotPasswordInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Reset instructions queued if the account exists" },
+          "422": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/auth/reset-password": {
+      post: {
+        tags: ["Auth"],
+        summary: "Reset password with emailed token",
+        description: "Consumes the reset token and revokes all active sessions.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ResetPasswordInput" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Password reset; sign in again" },
+          "400": { $ref: "#/components/responses/Error" },
+          "401": { $ref: "#/components/responses/Error" },
+          "422": { $ref: "#/components/responses/Error" },
         },
       },
     },

@@ -1,6 +1,11 @@
 import Joi from "joi";
 import { PUBLIC_REGISTRATION_ROLES } from "./auth.model";
 
+const passwordSchema = Joi.string()
+  .min(8)
+  .pattern(/[A-Z]/, "uppercase")
+  .pattern(/[0-9]/, "number");
+
 export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required().messages({
     "string.min": "Name must be at least 2 characters",
@@ -11,10 +16,7 @@ export const registerSchema = Joi.object({
     "string.email": "Invalid email address",
     "any.required": "Email is required",
   }),
-  password: Joi.string()
-    .min(8)
-    .pattern(/[A-Z]/, "uppercase")
-    .pattern(/[0-9]/, "number")
+  password: passwordSchema
     .required()
     .messages({
       "string.min": "Password must be at least 8 characters",

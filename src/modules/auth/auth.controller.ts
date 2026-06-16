@@ -118,6 +118,32 @@ export const changePassword = async (
   }
 };
 
+export const forgotPassword = async (
+  req: Request<object, object, ForgotPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.requestPasswordReset(req.body);
+    sendSuccess(res, null, 'If the email exists, password reset instructions have been sent');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPassword = async (
+  req: Request<object, object, ResetPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.resetPassword(req.body);
+    sendSuccess(res, null, 'Password reset successfully; please sign in again');
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = await authService.getMe(req.user!.userId);
@@ -181,33 +207,6 @@ export const updateProfile = async (
   try {
     const user = await authService.updateProfile(req.user!.userId, req.body);
     sendSuccess(res, user, 'Profile updated');
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const forgotPassword = async (
-  req: Request<object, object, ForgotPasswordInput>,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    await authService.requestPasswordReset(req.body.email);
-    // Always return success to prevent email enumeration
-    sendSuccess(res, null, 'If an account with that email exists, a reset link has been sent');
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const resetPassword = async (
-  req: Request<object, object, ResetPasswordInput>,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    await authService.resetPassword(req.body.token, req.body.newPassword);
-    sendSuccess(res, null, 'Password reset successful; please sign in again');
   } catch (error) {
     next(error);
   }
