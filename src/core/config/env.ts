@@ -49,6 +49,9 @@ const envSchema = Joi.object({
   BLOCKCHAIN_RPC_URL: Joi.string().allow("").default(""),
   TITLE_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
   MINTER_PRIVATE_KEY: Joi.string().allow("").default(""),
+  // Lease escrow (ERC-20). Optional so the app/tests boot without a chain.
+  ESCROW_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
+  ESCROW_TOKEN_ADDRESS: Joi.string().allow("").default(""),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -85,6 +88,8 @@ interface Env {
   BLOCKCHAIN_RPC_URL: string;
   TITLE_CONTRACT_ADDRESS: string;
   MINTER_PRIVATE_KEY: string;
+  ESCROW_CONTRACT_ADDRESS: string;
+  ESCROW_TOKEN_ADDRESS: string;
 }
 
 const validated = value as Env;
