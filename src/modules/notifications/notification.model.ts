@@ -30,6 +30,8 @@ export const NOTIFICATION_TYPES = [
   // Rental applications
   "rental_application.received",
   "rental_application.status_update",
+  // Saved searches
+  "saved_search.match",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

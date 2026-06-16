@@ -7,6 +7,7 @@ import * as chain from "../../core/blockchain/propertyTitle.service";
 import * as chainTransactions from "../chainTransactions/chainTransaction.service";
 import * as notifications from "../notifications/notification.service";
 import * as compliance from "../compliance/compliance.service";
+import * as savedSearches from "../savedSearches/savedSearch.service";
 import type { AuditAction } from "../audit/audit.model";
 import type { FilterQuery } from "mongoose";
 import type {
@@ -356,6 +357,10 @@ export const transition = async (
       message: `Your listing "${listing.title}" is now ${listing.status}.`,
       metadata: { listingId: listing.id, action: input.action },
     });
+  }
+
+  if (input.action === "publish") {
+    await savedSearches.notifyMatchingSavedSearches(listing);
   }
 
   if (
