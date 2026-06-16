@@ -64,6 +64,13 @@ export const AUDIT_ACTIONS = [
   // Purchase transactions
   "purchase_transaction.created",
   "purchase_transaction.updated",
+  // Rental applications
+  "rental_application.created",
+  "rental_application.reviewed",
+  "rental_application.screened",
+  "rental_application.appointment_updated",
+  "rental_application.withdrawn",
+  "rental_application.lease_created",
 ] as const;
 
 export type AuditTargetType =
@@ -72,7 +79,8 @@ export type AuditTargetType =
   | "lease"
   | "admin"
   | "compliance"
-  | "purchase_transaction";
+  | "purchase_transaction"
+  | "rental_application";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

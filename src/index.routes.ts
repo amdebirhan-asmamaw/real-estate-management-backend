@@ -15,6 +15,7 @@ import { savedSearchRouter } from "./modules/savedSearches/savedSearch.routes";
 import { offerRouter } from "./modules/offers/offer.routes";
 import { complianceRouter } from "./modules/compliance/compliance.routes";
 import { purchaseTransactionRouter } from "./modules/purchaseTransactions/purchaseTransaction.routes";
+import { rentalApplicationRouter } from "./modules/rentalApplications/rentalApplication.routes";
 
 const router = Router();
 
@@ -34,6 +35,7 @@ router.use("/saved-searches", savedSearchRouter);
 router.use("/offers", offerRouter);
 router.use("/compliance", complianceRouter);
 router.use("/purchase-transactions", purchaseTransactionRouter);
+router.use("/rental-applications", rentalApplicationRouter);
 
 // Register new module routers here:
 
