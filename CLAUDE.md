@@ -10,6 +10,8 @@ npm run build          # Clean dist/ then compile with tsc
 npm start              # Run compiled dist/server.js
 npm run typecheck      # tsc --noEmit (src only; tests are type-checked by ts-jest)
 npm run lint           # ESLint over src/**/*.ts
+npm run lint:fix       # ESLint with --fix
+npm run format         # Prettier --write over src/**/*.ts (format:check to verify only)
 npm test               # Jest, runs in band
 npm run test:coverage  # Jest with coverage
 
@@ -18,7 +20,7 @@ npx jest tests/auth.test.ts
 npx jest -t "logs in with valid credentials"
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build; keep all four green.
+Requires Node >= 20. CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build; keep all four green. Husky + `lint-staged` run `eslint --fix` and `prettier --write` on staged `src/**/*.ts` at commit time, so commits are auto-formatted.
 
 ## Architecture
 

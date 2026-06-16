@@ -19,9 +19,18 @@ export const AUDIT_ACTIONS = [
   "user.kyc_approved",
   "user.kyc_rejected",
   "user.status_changed",
+  "lease.created",
+  "lease.proposed",
+  "lease.escrow_funded",
+  "lease.activated",
+  "lease.cancelled",
+  "lease.completed",
+  "lease.terminated",
+  "lease.disputed",
+  "lease.dispute_resolved",
 ] as const;
 
-export type AuditTargetType = "listing" | "user";
+export type AuditTargetType = "listing" | "user" | "lease";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
