@@ -51,4 +51,45 @@ describe("GET /api/v1/chain-transactions", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("lets admins mark a transaction stale", async () => {
+    const admin = await makeUser("chain-stale-admin@example.com", "admin");
+    const actor = await User.findOne({ email: "chain-stale-admin@example.com" });
+    const tx = await ChainTransaction.create({
+      operation: "title.mint",
+      status: "pending",
+      targetType: "listing",
+      targetId: new mongoose.Types.ObjectId(),
+      createdBy: actor!.id,
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/chain-transactions/${tx.id}/mark-stale`)
+      .set(bearer(admin))
+      .send({ reason: "Receipt not found after retry window" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("stale");
+    expect(res.body.data.errorMessage).toBe("Receipt not found after retry window");
+  });
+
+  it("returns a service error for reconcile when RPC is not configured", async () => {
+    const admin = await makeUser("chain-reconcile-admin@example.com", "admin");
+    const actor = await User.findOne({ email: "chain-reconcile-admin@example.com" });
+    const tx = await ChainTransaction.create({
+      operation: "title.mint",
+      status: "mined",
+      targetType: "listing",
+      targetId: new mongoose.Types.ObjectId(),
+      createdBy: actor!.id,
+      txHash: "0x" + "1".repeat(64),
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/chain-transactions/${tx.id}/reconcile`)
+      .set(bearer(admin))
+      .send({ confirmations: 2 });
+
+    expect(res.status).toBe(503);
+  });
 });

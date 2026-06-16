@@ -10,8 +10,13 @@ export const CHAIN_TRANSACTION_OPERATIONS = [
 ] as const;
 
 export const CHAIN_TRANSACTION_STATUSES = [
+  "submitted",
   "pending",
   "mined",
+  "confirmed",
+  "reverted",
+  "stale",
+  "reconciled",
   "failed",
 ] as const;
 
@@ -29,6 +34,10 @@ export interface IChainTransaction extends Document {
   contractAddress?: string;
   txHash?: string;
   errorMessage?: string;
+  blockNumber?: number;
+  confirmedAt?: Date;
+  reconciledAt?: Date;
+  staleAt?: Date;
   metadata?: Record<string, unknown>;
   createdBy: Types.ObjectId;
   createdAt: Date;
@@ -63,6 +72,10 @@ const chainTransactionSchema = new Schema<IChainTransaction>(
     contractAddress: String,
     txHash: { type: String, index: true },
     errorMessage: String,
+    blockNumber: Number,
+    confirmedAt: Date,
+    reconciledAt: Date,
+    staleAt: Date,
     metadata: Schema.Types.Mixed,
     createdBy: {
       type: Schema.Types.ObjectId,

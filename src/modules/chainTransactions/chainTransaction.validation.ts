@@ -13,6 +13,14 @@ export const chainTransactionQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
+export const reconcileChainTransactionSchema = Joi.object({
+  confirmations: Joi.number().integer().min(1).max(128).default(1),
+});
+
+export const staleChainTransactionSchema = Joi.object({
+  reason: Joi.string().max(1000).default("Transaction exceeded reconciliation window"),
+});
+
 export type ChainTransactionQueryInput = {
   status?: string;
   operation?: string;
@@ -20,4 +28,12 @@ export type ChainTransactionQueryInput = {
   targetId?: string;
   page: number;
   limit: number;
+};
+
+export type ReconcileChainTransactionInput = {
+  confirmations: number;
+};
+
+export type StaleChainTransactionInput = {
+  reason: string;
 };
