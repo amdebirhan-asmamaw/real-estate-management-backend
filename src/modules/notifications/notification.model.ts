@@ -1,14 +1,25 @@
 import { Schema, model, Document, Types } from "mongoose";
 
 export const NOTIFICATION_TYPES = [
+  // Auth & account lifecycle
+  "auth.registration",
+  "auth.password_changed",
+  "account.suspended",
+  "account.reactivated",
+  "account.blocked",
+  // KYC
   "kyc.approved",
   "kyc.rejected",
+  // Listings
   "listing.review_update",
   "listing.published",
+  // Inquiries
   "inquiry.received",
   "inquiry.responded",
+  // Offers
   "offer.received",
   "offer.responded",
+  // Leases
   "lease.status_update",
 ] as const;
 

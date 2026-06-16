@@ -9,6 +9,9 @@ import type {
   ChangePasswordInput,
   WalletChallengeInput,
   WalletLinkInput,
+  UpdateProfileInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
 } from './auth.validation';
 
 // Captures user-agent + IP so sessions are attributable in the session list.
@@ -165,6 +168,46 @@ export const unlinkWallet = async (
   try {
     const user = await authService.unlinkWallet(req.user!.userId);
     sendSuccess(res, user, 'Wallet unlinked');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProfile = async (
+  req: Request<object, object, UpdateProfileInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await authService.updateProfile(req.user!.userId, req.body);
+    sendSuccess(res, user, 'Profile updated');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const forgotPassword = async (
+  req: Request<object, object, ForgotPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.requestPasswordReset(req.body.email);
+    // Always return success to prevent email enumeration
+    sendSuccess(res, null, 'If an account with that email exists, a reset link has been sent');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPassword = async (
+  req: Request<object, object, ResetPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.resetPassword(req.body.token, req.body.newPassword);
+    sendSuccess(res, null, 'Password reset successful; please sign in again');
   } catch (error) {
     next(error);
   }

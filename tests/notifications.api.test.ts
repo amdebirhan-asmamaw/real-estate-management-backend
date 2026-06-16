@@ -20,6 +20,10 @@ const makeUser = async (email: string) => {
 describe("notifications API", () => {
   it("lists notifications with unread counts and marks them read", async () => {
     const { token, user } = await makeUser("notify@example.com");
+
+    // Clear the registration notification created during signup
+    await Notification.deleteMany({ recipient: user.id });
+
     const notification = await Notification.create({
       recipient: user.id,
       type: "listing.review_update",

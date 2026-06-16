@@ -184,6 +184,22 @@ export const setAccountStatus = async (
     );
   }
   const user = await findUserOr404(targetUserId);
+
+  // Guard: cannot modify super_admin accounts
+  if (user.role === "super_admin") {
+    throw new AppError(
+      "Cannot modify a super admin account",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  // Guard: admin cannot modify another admin (only super_admin can)
+  if (user.role === "admin" && role !== "super_admin") {
+    throw new AppError(
+      "Only a super admin can change an admin's account status",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+
   user.accountStatus = accountStatus;
   await user.save();
 
@@ -195,6 +211,35 @@ export const setAccountStatus = async (
     targetId: targetUserId,
     metadata: { accountStatus },
   });
+
+  // Notify the user about their status change
+  const statusMessages: Record<string, { type: string; title: string; message: string }> = {
+    suspended: {
+      type: "account.suspended",
+      title: "Account suspended",
+      message: "Your account has been suspended. Contact support for details.",
+    },
+    blocked: {
+      type: "account.blocked",
+      title: "Account blocked",
+      message: "Your account has been blocked due to a policy violation.",
+    },
+    active: {
+      type: "account.reactivated",
+      title: "Account reactivated",
+      message: "Your account has been reactivated. You may now use the platform again.",
+    },
+  };
+
+  const notification = statusMessages[accountStatus];
+  if (notification) {
+    await notifications.notify({
+      recipient: targetUserId,
+      type: notification.type as Parameters<typeof notifications.notify>[0]["type"],
+      title: notification.title,
+      message: notification.message,
+    });
+  }
 
   return user;
 };

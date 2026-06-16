@@ -2,7 +2,7 @@ import { Router } from 'express';
 import * as authController from './auth.controller';
 import { validate } from '../../core/middleware/validate.middleware';
 import { authenticate } from '../../core/middleware/auth.middleware';
-import { authLimiter } from '../../core/middleware/rateLimiter.middleware';
+import { authLimiter, passwordResetLimiter } from '../../core/middleware/rateLimiter.middleware';
 import {
   registerSchema,
   loginSchema,
@@ -10,6 +10,9 @@ import {
   changePasswordSchema,
   walletChallengeSchema,
   walletLinkSchema,
+  updateProfileSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from './auth.validation';
 
 export const authRouter = Router();
@@ -20,8 +23,28 @@ authRouter.post('/login', authLimiter, validate(loginSchema), authController.log
 authRouter.post('/refresh-token', authLimiter, validate(refreshTokenSchema), authController.refreshToken);
 authRouter.post('/logout', validate(refreshTokenSchema), authController.logout);
 
+// Password recovery (public, stricter rate limit)
+authRouter.post(
+  '/forgot-password',
+  passwordResetLimiter,
+  validate(forgotPasswordSchema),
+  authController.forgotPassword,
+);
+authRouter.post(
+  '/reset-password',
+  passwordResetLimiter,
+  validate(resetPasswordSchema),
+  authController.resetPassword,
+);
+
 // Protected routes
 authRouter.get('/me', authenticate, authController.getMe);
+authRouter.patch(
+  '/profile',
+  authenticate,
+  validate(updateProfileSchema),
+  authController.updateProfile,
+);
 authRouter.get('/sessions', authenticate, authController.sessions);
 authRouter.post('/logout-all', authenticate, authController.logoutAll);
 authRouter.post(

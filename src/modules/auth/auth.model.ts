@@ -12,7 +12,7 @@ export type AccountStatus =
   | 'blocked'
   | 'rejected';
 
-export type KycStatus = 'not_started' | 'pending' | 'verified' | 'rejected';
+export type KycStatus = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected';
 
 export type KycDocumentType =
   | 'national_id'
@@ -43,14 +43,21 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: UserRole;
+  phone?: string;
+  profileImage?: string;
   accountStatus: AccountStatus;
   kycStatus: KycStatus;
   emailVerified: boolean;
+  mustResetPassword: boolean;
   walletAddress?: string;
   walletStatus: 'unlinked' | 'linked';
   walletLinkChallenge?: IWalletLinkChallenge;
   kycDocuments: Types.DocumentArray<IKycDocument>;
   kycReviewNote?: string;
+  failedLoginAttempts: number;
+  lastFailedLoginAt?: Date;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -123,10 +130,17 @@ const userSchema = new Schema<IUser>(
     },
     kycStatus: {
       type: String,
-      enum: ['not_started', 'pending', 'verified', 'rejected'],
+      enum: ['not_started', 'pending', 'under_review', 'verified', 'rejected'],
       default: 'not_started',
     },
     emailVerified: { type: Boolean, default: false },
+    mustResetPassword: { type: Boolean, default: false },
+    phone: {
+      type: String,
+      trim: true,
+      maxlength: [20, 'Phone number cannot exceed 20 characters'],
+    },
+    profileImage: { type: String, trim: true },
     // Groundwork for the later "mint to owner wallet" upgrade (custodial today).
     walletAddress: {
       type: String,
@@ -142,6 +156,10 @@ const userSchema = new Schema<IUser>(
     walletLinkChallenge: walletLinkChallengeSchema,
     kycDocuments: { type: [kycDocumentSchema], default: [] },
     kycReviewNote: String,
+    failedLoginAttempts: { type: Number, default: 0 },
+    lastFailedLoginAt: Date,
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
   },
   {
     timestamps: true,
@@ -152,6 +170,10 @@ const userSchema = new Schema<IUser>(
         delete ret.kycDocuments;
         delete ret.walletLinkChallenge;
         delete ret.password;
+        delete ret.passwordResetToken;
+        delete ret.passwordResetExpires;
+        delete ret.failedLoginAttempts;
+        delete ret.lastFailedLoginAt;
         return ret;
       },
     },

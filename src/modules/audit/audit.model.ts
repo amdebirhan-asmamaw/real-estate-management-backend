@@ -1,6 +1,30 @@
 import { Schema, model, Document, Types } from "mongoose";
 
 export const AUDIT_ACTIONS = [
+  // Auth lifecycle
+  "user.registered",
+  "user.logged_in",
+  "user.logged_out",
+  "user.login_failed",
+  "user.password_changed",
+  "user.password_reset_requested",
+  "user.password_reset",
+  "user.profile_updated",
+  "user.wallet_linked",
+  "user.wallet_unlinked",
+  // Admin management
+  "admin.created_admin",
+  "admin.suspended_user",
+  "admin.reactivated_user",
+  "admin.blocked_user",
+  "admin.suspended_admin",
+  "admin.reactivated_admin",
+  // KYC
+  "user.kyc_submitted",
+  "user.kyc_approved",
+  "user.kyc_rejected",
+  "user.status_changed",
+  // Listing lifecycle
   "listing.created",
   "listing.submitted",
   "listing.review_started",
@@ -15,10 +39,7 @@ export const AUDIT_ACTIONS = [
   "document.approved",
   "document.rejected",
   "listing.title_minted",
-  "user.kyc_submitted",
-  "user.kyc_approved",
-  "user.kyc_rejected",
-  "user.status_changed",
+  // Lease lifecycle
   "lease.created",
   "lease.proposed",
   "lease.escrow_funded",
@@ -30,7 +51,7 @@ export const AUDIT_ACTIONS = [
   "lease.dispute_resolved",
 ] as const;
 
-export type AuditTargetType = "listing" | "user" | "lease";
+export type AuditTargetType = "listing" | "user" | "lease" | "admin";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
