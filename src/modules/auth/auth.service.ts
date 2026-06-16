@@ -1,16 +1,26 @@
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { StatusCodes } from 'http-status-codes';
 import { User, IUser, canAuthenticate } from './auth.model';
 import { RefreshSession, IRefreshSession } from './session.model';
+import { PasswordResetToken } from './passwordResetToken.model';
 import { AppError } from '../../core/utils/AppError';
 import { sha256 } from '../../core/utils/hash';
+import { sendPasswordResetEmail } from '../../core/utils/mailer';
+import { env } from '../../core/config/env';
 import {
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
   getTokenExpiry,
 } from '../../core/utils/jwt';
-import type { RegisterInput, LoginInput, RefreshTokenInput } from './auth.validation';
+import type {
+  RegisterInput,
+  LoginInput,
+  RefreshTokenInput,
+  UpdateProfileInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+} from './auth.validation';
 import type { JwtPayload } from '../../core/middleware/auth.middleware';
 
 interface AuthTokens {
@@ -26,6 +36,8 @@ interface PublicUser {
   accountStatus: string;
   kycStatus: string;
   emailVerified: boolean;
+  walletAddress?: string;
+  walletStatus: string;
 }
 
 interface AuthResult {
@@ -46,6 +58,11 @@ const buildTokens = (payload: JwtPayload): AuthTokens => ({
 
 const hashToken = (token: string): string => sha256(Buffer.from(token));
 
+const buildResetUrl = (token: string): string => {
+  const base = env.APP_BASE_URL.replace(/\/$/, '');
+  return `${base}/reset-password?token=${encodeURIComponent(token)}`;
+};
+
 const toPublicUser = (user: IUser): PublicUser => ({
   id: user.id as string,
   name: user.name,
@@ -54,6 +71,8 @@ const toPublicUser = (user: IUser): PublicUser => ({
   accountStatus: user.accountStatus,
   kycStatus: user.kycStatus,
   emailVerified: user.emailVerified,
+  walletAddress: user.walletAddress,
+  walletStatus: user.walletStatus,
 });
 
 const blockedMessage = (status: string): string => {
@@ -210,6 +229,24 @@ export const logoutAll = async (userId: string): Promise<void> => {
   );
 };
 
+export const updateProfile = async (
+  userId: string,
+  input: UpdateProfileInput,
+): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  if (input.name !== undefined) user.name = input.name;
+  if (input.walletAddress !== undefined) {
+    user.walletAddress = input.walletAddress || undefined;
+  }
+
+  await user.save();
+  return toPublicUser(user);
+};
+
 export interface SessionSummary {
   id: string;
   userAgent?: string;
@@ -249,9 +286,74 @@ export const changePassword = async (
   if (!ok) {
     throw new AppError('Current password is incorrect', StatusCodes.UNAUTHORIZED);
   }
+  const samePassword = await user.comparePassword(newPassword);
+  if (samePassword) {
+    throw new AppError('New password must differ from current password', StatusCodes.BAD_REQUEST);
+  }
   user.password = newPassword; // hashed by the pre-save hook
   await user.save();
   await logoutAll(userId);
+};
+
+export const requestPasswordReset = async (
+  input: ForgotPasswordInput,
+): Promise<void> => {
+  const user = await User.findOne({ email: input.email });
+  // Always return success so callers cannot enumerate registered accounts.
+  if (!user || !canAuthenticate(user.accountStatus)) {
+    return;
+  }
+
+  await PasswordResetToken.updateMany(
+    { user: user._id, usedAt: { $exists: false } },
+    { usedAt: new Date() },
+  );
+
+  const rawToken = randomBytes(32).toString('hex');
+  const expiresAt = new Date(
+    Date.now() + env.PASSWORD_RESET_EXPIRES_MINUTES * 60 * 1000,
+  );
+
+  await PasswordResetToken.create({
+    user: user._id,
+    tokenHash: hashToken(rawToken),
+    expiresAt,
+  });
+
+  await sendPasswordResetEmail(
+    user.email,
+    buildResetUrl(rawToken),
+    env.PASSWORD_RESET_EXPIRES_MINUTES,
+  );
+};
+
+export const resetPassword = async (
+  input: ResetPasswordInput,
+): Promise<void> => {
+  const token = await PasswordResetToken.findOne({
+    tokenHash: hashToken(input.token),
+    usedAt: { $exists: false },
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (!token) {
+    throw new AppError('Invalid or expired password reset token', StatusCodes.UNAUTHORIZED);
+  }
+
+  const user = await User.findById(token.user).select('+password');
+  if (!user || !canAuthenticate(user.accountStatus)) {
+    throw new AppError('Invalid or expired password reset token', StatusCodes.UNAUTHORIZED);
+  }
+
+  const samePassword = await user.comparePassword(input.newPassword);
+  if (samePassword) {
+    throw new AppError('New password must differ from current password', StatusCodes.BAD_REQUEST);
+  }
+
+  user.password = input.newPassword;
+  token.usedAt = new Date();
+  await Promise.all([user.save(), token.save()]);
+  await logoutAll(user.id as string);
 };
 
 export const getMe = async (userId: string): Promise<PublicUser> => {

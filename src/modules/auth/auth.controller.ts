@@ -7,6 +7,9 @@ import type {
   LoginInput,
   RefreshTokenInput,
   ChangePasswordInput,
+  UpdateProfileInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
 } from './auth.validation';
 
 // Captures user-agent + IP so sessions are attributable in the session list.
@@ -113,10 +116,49 @@ export const changePassword = async (
   }
 };
 
+export const forgotPassword = async (
+  req: Request<object, object, ForgotPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.requestPasswordReset(req.body);
+    sendSuccess(res, null, 'If the email exists, password reset instructions have been sent');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPassword = async (
+  req: Request<object, object, ResetPasswordInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    await authService.resetPassword(req.body);
+    sendSuccess(res, null, 'Password reset successfully; please sign in again');
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = await authService.getMe(req.user!.userId);
     sendSuccess(res, user, 'Profile fetched');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProfile = async (
+  req: Request<object, object, UpdateProfileInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await authService.updateProfile(req.user!.userId, req.body);
+    sendSuccess(res, user, 'Profile updated');
   } catch (error) {
     next(error);
   }

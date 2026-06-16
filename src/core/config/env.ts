@@ -49,6 +49,16 @@ const envSchema = Joi.object({
   BLOCKCHAIN_RPC_URL: Joi.string().allow("").default(""),
   TITLE_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
   MINTER_PRIVATE_KEY: Joi.string().allow("").default(""),
+  // Email delivery. Optional outside production; password-reset requests log a
+  // development link when SMTP is not configured.
+  APP_BASE_URL: Joi.string().uri().default("http://localhost:3000"),
+  MAIL_FROM: Joi.string().default("Swafri <no-reply@swafri.local>"),
+  SMTP_HOST: Joi.string().allow("").default(""),
+  SMTP_PORT: Joi.number().port().default(587),
+  SMTP_SECURE: Joi.boolean().default(false),
+  SMTP_USER: Joi.string().allow("").default(""),
+  SMTP_PASS: Joi.string().allow("").default(""),
+  PASSWORD_RESET_EXPIRES_MINUTES: Joi.number().integer().min(5).max(120).default(30),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -85,6 +95,14 @@ interface Env {
   BLOCKCHAIN_RPC_URL: string;
   TITLE_CONTRACT_ADDRESS: string;
   MINTER_PRIVATE_KEY: string;
+  APP_BASE_URL: string;
+  MAIL_FROM: string;
+  SMTP_HOST: string;
+  SMTP_PORT: number;
+  SMTP_SECURE: boolean;
+  SMTP_USER: string;
+  SMTP_PASS: string;
+  PASSWORD_RESET_EXPIRES_MINUTES: number;
 }
 
 const validated = value as Env;

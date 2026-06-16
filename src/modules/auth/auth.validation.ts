@@ -1,5 +1,16 @@
 import Joi from "joi";
 
+const passwordSchema = Joi.string()
+  .min(8)
+  .pattern(/[A-Z]/, "uppercase")
+  .pattern(/[0-9]/, "number");
+
+const walletAddressSchema = Joi.string()
+  .pattern(/^0x[a-fA-F0-9]{40}$/)
+  .messages({
+    "string.pattern.base": "walletAddress must be a valid EVM address",
+  });
+
 export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required().messages({
     "string.min": "Name must be at least 2 characters",
@@ -10,10 +21,7 @@ export const registerSchema = Joi.object({
     "string.email": "Invalid email address",
     "any.required": "Email is required",
   }),
-  password: Joi.string()
-    .min(8)
-    .pattern(/[A-Z]/, "uppercase")
-    .pattern(/[0-9]/, "number")
+  password: passwordSchema
     .required()
     .messages({
       "string.min": "Password must be at least 8 characters",
@@ -47,10 +55,34 @@ export const changePasswordSchema = Joi.object({
   currentPassword: Joi.string().required().messages({
     "any.required": "Current password is required",
   }),
-  newPassword: Joi.string()
-    .min(8)
-    .pattern(/[A-Z]/, "uppercase")
-    .pattern(/[0-9]/, "number")
+  newPassword: passwordSchema
+    .required()
+    .messages({
+      "string.min": "Password must be at least 8 characters",
+      "string.pattern.name": "Password must contain at least one {#name}",
+      "any.required": "New password is required",
+    }),
+});
+
+export const updateProfileSchema = Joi.object({
+  name: Joi.string().min(2).max(100),
+  // Empty string unlinks the wallet. A verified signed-message wallet flow can
+  // replace this later without changing the profile contract.
+  walletAddress: walletAddressSchema.allow(""),
+}).min(1);
+
+export const forgotPasswordSchema = Joi.object({
+  email: Joi.string().email({ tlds: { allow: false } }).required().messages({
+    "string.email": "Invalid email address",
+    "any.required": "Email is required",
+  }),
+});
+
+export const resetPasswordSchema = Joi.object({
+  token: Joi.string().min(32).required().messages({
+    "any.required": "Reset token is required",
+  }),
+  newPassword: passwordSchema
     .required()
     .messages({
       "string.min": "Password must be at least 8 characters",
@@ -78,5 +110,19 @@ export type RefreshTokenInput = {
 
 export type ChangePasswordInput = {
   currentPassword: string;
+  newPassword: string;
+};
+
+export type UpdateProfileInput = {
+  name?: string;
+  walletAddress?: string;
+};
+
+export type ForgotPasswordInput = {
+  email: string;
+};
+
+export type ResetPasswordInput = {
+  token: string;
   newPassword: string;
 };
