@@ -155,6 +155,21 @@ export const openapiSpec: Record<string, unknown> = {
           },
         },
       },
+      PropertyType: {
+        type: "string",
+        enum: [
+          "apartment",
+          "house",
+          "villa",
+          "condominium",
+          "land",
+          "commercial_space",
+          "office",
+          "warehouse",
+          "shop",
+          "mixed_use",
+        ],
+      },
       Listing: {
         type: "object",
         properties: {
@@ -163,6 +178,7 @@ export const openapiSpec: Record<string, unknown> = {
           description: { type: "string" },
           listingType: { type: "string", enum: ["sale", "rent"] },
           category: { type: "string", enum: ["residential", "commercial"] },
+          propertyType: { $ref: "#/components/schemas/PropertyType" },
           status: {
             type: "string",
             enum: [
@@ -173,8 +189,14 @@ export const openapiSpec: Record<string, unknown> = {
               "rejected",
               "published",
               "suspended",
+              "rented",
+              "sold",
               "archived",
             ],
+          },
+          availabilityStatus: {
+            type: "string",
+            enum: ["available", "under_offer", "rented", "sold"],
           },
           price: { type: "number" },
           monthlyRent: { type: "number" },
@@ -185,9 +207,25 @@ export const openapiSpec: Record<string, unknown> = {
             type: "object",
             properties: {
               value: { type: "number" },
-              unit: { type: "string", enum: ["sqm", "sqft"] },
+              unit: { type: "string", enum: ["sqm", "sqft"], default: "sqm" },
             },
           },
+          yearBuilt: { type: "integer" },
+          floorNumber: { type: "integer" },
+          parkingSpaces: { type: "integer" },
+          totalFloors: { type: "integer" },
+          maintenanceFee: { type: "number" },
+          serviceCharge: { type: "number" },
+          furnishingStatus: {
+            type: "string",
+            enum: ["furnished", "semi_furnished", "unfurnished"],
+          },
+          utilityDetails: { type: "string" },
+          neighborhoodInfo: { type: "string" },
+          nearbyLandmarks: { type: "array", items: { type: "string" } },
+          rentalTerms: { type: "string" },
+          saleTerms: { type: "string" },
+          legalNotes: { type: "string" },
           address: {
             type: "object",
             properties: {
@@ -207,12 +245,20 @@ export const openapiSpec: Record<string, unknown> = {
               properties: {
                 url: { type: "string" },
                 publicId: { type: "string" },
+                isCover: { type: "boolean" },
               },
             },
           },
           verificationStatus: {
             type: "string",
-            enum: ["unverified", "pending", "verified", "rejected"],
+            enum: [
+              "unverified",
+              "pending",
+              "requires_more_info",
+              "verified",
+              "rejected",
+              "suspended",
+            ],
           },
           tokenId: { type: "string", nullable: true },
           createdBy: { type: "string" },
@@ -222,27 +268,59 @@ export const openapiSpec: Record<string, unknown> = {
       },
       CreateListingInput: {
         type: "object",
-        required: ["title", "listingType", "category", "location"],
+        required: ["title", "listingType", "category", "propertyType", "location"],
         properties: {
           title: { type: "string", maxLength: 200 },
           description: { type: "string", maxLength: 5000 },
           listingType: { type: "string", enum: ["sale", "rent"] },
           category: { type: "string", enum: ["residential", "commercial"] },
-          price: { type: "number", description: "Required when listingType=sale" },
+          propertyType: { $ref: "#/components/schemas/PropertyType" },
+          price: {
+            type: "number",
+            minimum: 0,
+            description: "Required when listingType=sale; forbidden when listingType=rent",
+          },
           monthlyRent: {
             type: "number",
-            description: "Required when listingType=rent",
+            minimum: 0,
+            description: "Required when listingType=rent; forbidden when listingType=sale",
           },
-          currency: { type: "string", example: "USD" },
-          bedrooms: { type: "integer" },
-          bathrooms: { type: "integer" },
+          currency: {
+            type: "string",
+            minLength: 3,
+            maxLength: 3,
+            default: "USD",
+            description: "ISO 4217 code, uppercased",
+          },
+          bedrooms: { type: "number", minimum: 0 },
+          bathrooms: { type: "number", minimum: 0 },
           area: {
             type: "object",
+            required: ["value"],
             properties: {
-              value: { type: "number" },
-              unit: { type: "string", enum: ["sqm", "sqft"] },
+              value: { type: "number", minimum: 0 },
+              unit: { type: "string", enum: ["sqm", "sqft"], default: "sqm" },
             },
           },
+          yearBuilt: { type: "integer", minimum: 1800, maximum: 2100 },
+          floorNumber: { type: "integer", minimum: 0 },
+          parkingSpaces: { type: "integer", minimum: 0 },
+          totalFloors: { type: "integer", minimum: 0 },
+          maintenanceFee: { type: "number", minimum: 0 },
+          serviceCharge: { type: "number", minimum: 0 },
+          utilityDetails: { type: "string", maxLength: 2000 },
+          neighborhoodInfo: { type: "string", maxLength: 2000 },
+          furnishingStatus: {
+            type: "string",
+            enum: ["furnished", "semi_furnished", "unfurnished"],
+          },
+          nearbyLandmarks: {
+            type: "array",
+            items: { type: "string", maxLength: 200 },
+          },
+          rentalTerms: { type: "string", maxLength: 5000 },
+          saleTerms: { type: "string", maxLength: 5000 },
+          legalNotes: { type: "string", maxLength: 5000 },
           address: {
             type: "object",
             properties: {
@@ -272,6 +350,10 @@ export const openapiSpec: Record<string, unknown> = {
               "publish",
               "suspend",
               "unsuspend",
+              "mark_rented",
+              "mark_sold",
+              "unmark_rented",
+              "unmark_sold",
               "archive",
             ],
           },
@@ -345,10 +427,58 @@ export const openapiSpec: Record<string, unknown> = {
           listing: { type: "string" },
           listingOwner: { type: "string" },
           inquirer: { type: "string" },
+          inquiryType: {
+            type: "string",
+            enum: ["rent", "buy", "general"],
+          },
           message: { type: "string" },
-          status: { type: "string", enum: ["open", "responded", "closed"] },
+          contactInfo: {
+            type: "object",
+            properties: {
+              phone: { type: "string" },
+              email: { type: "string", format: "email" },
+            },
+          },
+          status: {
+            type: "string",
+            enum: ["open", "responded", "in_discussion", "closed", "spam"],
+          },
           response: { type: "string" },
           createdAt: { type: "string", format: "date-time" },
+        },
+      },
+      CreateInquiryInput: {
+        type: "object",
+        required: ["listingId", "message"],
+        properties: {
+          listingId: {
+            type: "string",
+            description: "24-char hex Mongo ObjectId of a published listing",
+          },
+          inquiryType: {
+            type: "string",
+            enum: ["rent", "buy", "general"],
+            default: "general",
+          },
+          message: { type: "string", minLength: 1, maxLength: 2000 },
+          contactInfo: {
+            type: "object",
+            properties: {
+              phone: { type: "string", maxLength: 20 },
+              email: { type: "string", format: "email", maxLength: 254 },
+            },
+          },
+        },
+      },
+      UpdateInquiryInput: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          status: {
+            type: "string",
+            enum: ["open", "responded", "in_discussion", "closed", "spam"],
+          },
+          response: { type: "string", maxLength: 2000 },
         },
       },
       Lease: {
@@ -390,19 +520,32 @@ export const openapiSpec: Record<string, unknown> = {
           "tenantId",
           "monthlyRent",
           "depositAmount",
-          "currency",
           "startDate",
           "endDate",
         ],
         properties: {
-          listingId: { type: "string" },
-          tenantId: { type: "string" },
-          monthlyRent: { type: "number" },
-          depositAmount: { type: "number" },
-          currency: { type: "string", example: "USDC" },
+          listingId: {
+            type: "string",
+            description: "24-char hex Mongo ObjectId of the listing",
+          },
+          tenantId: {
+            type: "string",
+            description: "24-char hex Mongo ObjectId of the tenant user",
+          },
+          monthlyRent: { type: "number", minimum: 0 },
+          depositAmount: { type: "number", minimum: 0 },
+          currency: {
+            type: "string",
+            default: "USD",
+            description: "Uppercased; defaults to USD when omitted",
+          },
           startDate: { type: "string", format: "date" },
-          endDate: { type: "string", format: "date" },
-          terms: { type: "string" },
+          endDate: {
+            type: "string",
+            format: "date",
+            description: "Must be after startDate",
+          },
+          terms: { type: "string", maxLength: 20000 },
         },
       },
       DisputeResolveInput: {
@@ -427,6 +570,39 @@ export const openapiSpec: Record<string, unknown> = {
             type: "boolean",
             description: "true when on-chain state matches DB record",
           },
+        },
+      },
+      SavedSearchQuery: {
+        type: "object",
+        minProperties: 1,
+        description:
+          "Persisted discovery filter. Spatial modes (viewport / radius / polygon) are " +
+          "mutually exclusive; supply all keys of a mode together.",
+        properties: {
+          swLng: { type: "number", minimum: -180, maximum: 180 },
+          swLat: { type: "number", minimum: -90, maximum: 90 },
+          neLng: { type: "number", minimum: -180, maximum: 180 },
+          neLat: { type: "number", minimum: -90, maximum: 90 },
+          lng: { type: "number", minimum: -180, maximum: 180 },
+          lat: { type: "number", minimum: -90, maximum: 90 },
+          radius: { type: "number", exclusiveMinimum: 0, description: "Meters" },
+          polygon: {
+            type: "array",
+            minItems: 4,
+            items: {
+              type: "array",
+              minItems: 2,
+              maxItems: 2,
+              items: { type: "number" },
+              description: "[longitude, latitude]",
+            },
+          },
+          listingType: { type: "string", enum: ["sale", "rent"] },
+          category: { type: "string", enum: ["residential", "commercial"] },
+          minPrice: { type: "number", minimum: 0 },
+          maxPrice: { type: "number", minimum: 0 },
+          minBedrooms: { type: "number", minimum: 0 },
+          minBathrooms: { type: "number", minimum: 0 },
         },
       },
     },
@@ -667,20 +843,34 @@ export const openapiSpec: Record<string, unknown> = {
         tags: ["Discovery"],
         summary: "Discover published listings",
         description:
-          "Public. Use a viewport (swLng/swLat/neLng/neLat) OR a radius (lng/lat/radius), " +
-          "plus optional filters. Returns paginated results.",
+          "Public. Choose **one** spatial mode: a viewport (swLng+swLat+neLng+neLat, all four " +
+          "together), a radius (lng+lat+radius, all three together), or a drawn polygon — they " +
+          "are mutually exclusive. All other filters are optional. Returns paginated results.",
         parameters: [
-          { name: "swLng", in: "query", schema: { type: "number" } },
-          { name: "swLat", in: "query", schema: { type: "number" } },
-          { name: "neLng", in: "query", schema: { type: "number" } },
-          { name: "neLat", in: "query", schema: { type: "number" } },
-          { name: "lng", in: "query", schema: { type: "number" } },
-          { name: "lat", in: "query", schema: { type: "number" } },
+          {
+            name: "q",
+            in: "query",
+            schema: { type: "string", maxLength: 200 },
+            description: "Free-text search over title/description",
+          },
+          { name: "swLng", in: "query", schema: { type: "number", minimum: -180, maximum: 180 } },
+          { name: "swLat", in: "query", schema: { type: "number", minimum: -90, maximum: 90 } },
+          { name: "neLng", in: "query", schema: { type: "number", minimum: -180, maximum: 180 } },
+          { name: "neLat", in: "query", schema: { type: "number", minimum: -90, maximum: 90 } },
+          { name: "lng", in: "query", schema: { type: "number", minimum: -180, maximum: 180 } },
+          { name: "lat", in: "query", schema: { type: "number", minimum: -90, maximum: 90 } },
           {
             name: "radius",
             in: "query",
             schema: { type: "number" },
-            description: "Meters from the point",
+            description: "Meters from the point (use with lng+lat)",
+          },
+          {
+            name: "polygon",
+            in: "query",
+            schema: { type: "string" },
+            description:
+              'JSON-encoded ring of ≥4 [lng,lat] points, e.g. `[[13.4,52.5],[13.5,52.5],[13.5,52.6],[13.4,52.5]]`',
           },
           {
             name: "listingType",
@@ -692,15 +882,50 @@ export const openapiSpec: Record<string, unknown> = {
             in: "query",
             schema: { type: "string", enum: ["residential", "commercial"] },
           },
-          { name: "minPrice", in: "query", schema: { type: "number" } },
-          { name: "maxPrice", in: "query", schema: { type: "number" } },
-          { name: "minBedrooms", in: "query", schema: { type: "number" } },
-          { name: "minBathrooms", in: "query", schema: { type: "number" } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "propertyType",
+            in: "query",
+            schema: { $ref: "#/components/schemas/PropertyType" },
+          },
+          { name: "minPrice", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "maxPrice", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "minBedrooms", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "minBathrooms", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "minArea", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "maxArea", in: "query", schema: { type: "number", minimum: 0 } },
+          { name: "verifiedOnly", in: "query", schema: { type: "boolean" } },
+          {
+            name: "availabilityStatus",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["available", "under_offer", "rented", "sold"],
+            },
+          },
+          {
+            name: "amenities",
+            in: "query",
+            schema: {
+              oneOf: [
+                { type: "string" },
+                { type: "array", items: { type: "string" } },
+              ],
+            },
+            description: "Repeat the param or pass a single value",
+          },
+          {
+            name: "sort",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["newest", "oldest", "price_asc", "price_desc"],
+            },
+          },
+          { name: "page", in: "query", schema: { type: "integer", default: 1, minimum: 1 } },
           {
             name: "limit",
             in: "query",
-            schema: { type: "integer", default: 20, maximum: 100 },
+            schema: { type: "integer", default: 20, minimum: 1, maximum: 100 },
           },
         ],
         responses: {
@@ -1010,6 +1235,27 @@ export const openapiSpec: Record<string, unknown> = {
         },
       },
     },
+    "/listings/{id}/analytics": {
+      get: {
+        tags: ["Listings"],
+        summary: "Listing lead & view metrics (owner/admin)",
+        description:
+          "Aggregated views, inquiries, offers and other lead metrics for a single listing. " +
+          "Accessible only by the listing owner or an admin.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: { "application/json": { schema: envelope() } },
+          },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
 
     "/favorites": {
       get: {
@@ -1063,14 +1309,7 @@ export const openapiSpec: Record<string, unknown> = {
           required: true,
           content: {
             "application/json": {
-              schema: {
-                type: "object",
-                required: ["listingId", "message"],
-                properties: {
-                  listingId: { type: "string" },
-                  message: { type: "string", maxLength: 2000 },
-                },
-              },
+              schema: { $ref: "#/components/schemas/CreateInquiryInput" },
             },
           },
         },
@@ -1106,28 +1345,56 @@ export const openapiSpec: Record<string, unknown> = {
       patch: {
         tags: ["Inquiries"],
         summary: "Respond to / update an inquiry (owner or admin)",
+        description: "At least one field must be provided.",
         security: bearer,
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string" } },
         ],
         requestBody: {
+          required: true,
           content: {
             "application/json": {
-              schema: {
-                type: "object",
-                properties: {
-                  status: {
-                    type: "string",
-                    enum: ["open", "responded", "closed"],
-                  },
-                  response: { type: "string", maxLength: 2000 },
-                },
-              },
+              schema: { $ref: "#/components/schemas/UpdateInquiryInput" },
             },
           },
         },
         responses: {
-          "200": { description: "Updated" },
+          "200": {
+            description: "Updated",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Inquiry"),
+              },
+            },
+          },
+          "403": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/inquiries/admin": {
+      get: {
+        tags: ["Inquiries"],
+        summary: "List all inquiries (admin)",
+        security: bearer,
+        parameters: [
+          {
+            name: "status",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["open", "responded", "in_discussion", "closed", "spam"],
+            },
+          },
+          { name: "listingId", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", default: 20, maximum: 100 },
+          },
+        ],
+        responses: {
+          "200": { description: "OK" },
           "403": { $ref: "#/components/responses/Error" },
         },
       },

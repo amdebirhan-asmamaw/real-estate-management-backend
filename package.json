@@ -19,6 +19,8 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --runInBand",
+    "seed:users": "ts-node src/scripts/seed-users.ts",
+    "seed:listings": "ts-node src/scripts/seed-listings.ts",
     "prepare": "husky || true",
     "seed:super-admin": "ts-node scripts/seed-super-admin.ts"
   },
