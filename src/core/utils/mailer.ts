@@ -13,16 +13,32 @@ interface MailMessage {
 
 const smtpConfigured = (): boolean => Boolean(env.SMTP_HOST);
 
-const transporter = () =>
-  nodemailer.createTransport({
+const isGmailHost = (): boolean =>
+  env.SMTP_HOST === "smtp.gmail.com" || env.SMTP_HOST.endsWith(".gmail.com");
+
+const transporter = () => {
+  if (!env.SMTP_USER || !env.SMTP_PASS) {
+    throw new AppError(
+      "SMTP_USER and SMTP_PASS are required when SMTP_HOST is set",
+      StatusCodes.SERVICE_UNAVAILABLE,
+    );
+  }
+
+  const auth = { user: env.SMTP_USER, pass: env.SMTP_PASS };
+
+  // Gmail: use nodemailer's built-in service profile (STARTTLS on port 587).
+  if (isGmailHost()) {
+    return nodemailer.createTransport({ service: "gmail", auth });
+  }
+
+  return nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure: env.SMTP_SECURE,
-    auth:
-      env.SMTP_USER || env.SMTP_PASS
-        ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
-        : undefined,
+    auth,
+    ...(env.SMTP_PORT === 587 && !env.SMTP_SECURE ? { requireTLS: true } : {}),
   });
+};
 
 export const sendMail = async (message: MailMessage): Promise<void> => {
   if (!smtpConfigured()) {
