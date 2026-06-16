@@ -7,6 +7,8 @@ export const NOTIFICATION_TYPES = [
   "listing.published",
   "inquiry.received",
   "inquiry.responded",
+  "offer.received",
+  "offer.responded",
   "lease.status_update",
 ] as const;
 
