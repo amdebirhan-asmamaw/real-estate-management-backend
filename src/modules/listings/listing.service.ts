@@ -620,6 +620,7 @@ export interface TitleInfo {
   tokenId: string;
   contractAddress?: string;
   owner: string;
+  status: string;
   onChainHash: string;
   offChainHash?: string;
   verified: boolean;
@@ -727,6 +728,7 @@ export const getTitleInfo = async (
     tokenId: listing.tokenId,
     contractAddress: listing.contractAddress,
     owner: onChain.owner,
+    status: onChain.status,
     onChainHash: onChain.documentHash,
     offChainHash: listing.ownershipDocumentHash,
     verified: onChain.documentHash === listing.ownershipDocumentHash,

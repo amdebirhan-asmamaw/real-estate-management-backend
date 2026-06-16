@@ -91,18 +91,23 @@ export const mintTitle = async (input: MintInput): Promise<MintResult> => {
 export interface OnChainTitle {
   owner: string;
   documentHash: string; // hex, no 0x prefix
+  status: "none" | "active" | "disputed" | "revoked";
 }
+
+const TITLE_STATUS_LABELS = ["none", "active", "disputed", "revoked"] as const;
 
 /** Reads the on-chain owner and anchored document hash for a token. */
 export const getTitle = async (tokenId: string): Promise<OnChainTitle> => {
   const { contract } = getContract();
-  const [owner, documentHash] = await Promise.all([
+  const [owner, documentHash, status] = await Promise.all([
     contract.ownerOf(tokenId),
     contract.documentHashOf(tokenId),
+    contract.titleStatusOf(tokenId),
   ]);
   return {
     owner: owner as string,
     documentHash: (documentHash as string).replace(/^0x/, ""),
+    status: TITLE_STATUS_LABELS[Number(status)] ?? "none",
   };
 };
 

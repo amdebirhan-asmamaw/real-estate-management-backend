@@ -94,14 +94,17 @@ describe("listing title minting", () => {
     (chain.getTitle as jest.Mock).mockResolvedValueOnce({
       owner: "0xMinter",
       documentHash: "deadbeef",
+      status: "active",
     });
     const info = await service.getTitleInfo(doc.id, null, null);
     expect(info.tokenId).toBe("7");
     expect(info.verified).toBe(true);
+    expect(info.status).toBe("active");
 
     (chain.getTitle as jest.Mock).mockResolvedValueOnce({
       owner: "0xMinter",
       documentHash: "tampered",
+      status: "disputed",
     });
     const tampered = await service.getTitleInfo(doc.id, null, null);
     expect(tampered.verified).toBe(false);
