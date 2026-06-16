@@ -13,6 +13,7 @@ import {
 } from '../../core/utils/jwt';
 import * as audit from '../audit/audit.service';
 import * as notifications from '../notifications/notification.service';
+import { Lease } from '../leases/lease.model';
 import type {
   RegisterInput,
   LoginInput,
@@ -472,6 +473,14 @@ export const linkWallet = async (
     metadata: { walletAddress: normalized },
   });
 
+  await notifications.notify({
+    recipient: userId,
+    type: 'auth.registration', // reuse closest type — wallet linked
+    title: 'Wallet linked',
+    message: `Your wallet (${normalized.slice(0, 6)}…${normalized.slice(-4)}) has been linked to your account.`,
+    metadata: { walletAddress: normalized },
+  });
+
   return toPublicUser(user);
 };
 
@@ -479,6 +488,19 @@ export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
   const user = await User.findById(userId);
   if (!user) {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  // Guard: prevent unlinking while user is party to active/funded leases.
+  const activeLease = await Lease.findOne({
+    $or: [{ landlord: userId }, { tenant: userId }],
+    status: { $in: ['proposed', 'active', 'disputed'] },
+    'escrow.state': { $in: ['funded', 'active'] },
+  });
+  if (activeLease) {
+    throw new AppError(
+      'Cannot unlink wallet while you have active or funded lease escrows',
+      StatusCodes.CONFLICT,
+    );
   }
 
   user.walletAddress = undefined;

@@ -38,6 +38,12 @@ export const listUsersSchema = Joi.object({
   status: Joi.string()
     .valid("pending", "active", "suspended", "blocked", "rejected")
     .messages({ "any.only": "Invalid account status filter" }),
+  kycStatus: Joi.string()
+    .valid("not_started", "pending", "under_review", "verified", "rejected")
+    .messages({ "any.only": "Invalid KYC status filter" }),
+  walletStatus: Joi.string()
+    .valid("unlinked", "linked")
+    .messages({ "any.only": "Invalid wallet status filter" }),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
   sort: Joi.string()
@@ -69,6 +75,8 @@ export type ListUsersQuery = {
   search?: string;
   role?: string;
   status?: AccountStatus;
+  kycStatus?: string;
+  walletStatus?: string;
   page: number;
   limit: number;
   sort: string;

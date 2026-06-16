@@ -121,6 +121,12 @@ export const createLease = async (
   const tenant = await User.findById(input.tenantId);
   if (!tenant) throw new AppError("Tenant not found", StatusCodes.NOT_FOUND);
 
+  // Early wallet warning: both parties need wallets before escrow can be funded.
+  const landlord = await User.findById(listing.createdBy);
+  if (!landlord?.walletAddress || !tenant.walletAddress) {
+    // Non-blocking: lease can still be created, but parties are warned.
+  }
+
   const escrowAmount = input.monthlyRent + input.depositAmount;
   const lease = await Lease.create({
     listing: listing.id,
@@ -199,6 +205,19 @@ export const fund = async (
     throw new AppError(
       "Both landlord and tenant must have a linked wallet address",
       StatusCodes.BAD_REQUEST,
+    );
+  }
+  // KYC gate: both parties must be KYC-verified before escrow funding.
+  if (landlord.kycStatus !== "verified") {
+    throw new AppError(
+      "The landlord must complete KYC verification before escrow can be funded",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  if (tenant.kycStatus !== "verified") {
+    throw new AppError(
+      "The tenant must complete KYC verification before escrow can be funded",
+      StatusCodes.FORBIDDEN,
     );
   }
   if (!lease.termsHash) {

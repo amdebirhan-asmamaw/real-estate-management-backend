@@ -260,6 +260,8 @@ export const listUsers = async (
   const filter: Record<string, unknown> = {};
   if (query.role) filter.role = query.role;
   if (query.status) filter.accountStatus = query.status;
+  if (query.kycStatus) filter.kycStatus = query.kycStatus;
+  if (query.walletStatus) filter.walletStatus = query.walletStatus;
   if (query.search) {
     const regex = new RegExp(query.search, "i");
     filter.$or = [{ name: regex }, { email: regex }];

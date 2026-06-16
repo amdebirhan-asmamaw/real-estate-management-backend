@@ -227,13 +227,19 @@ export const transition = async (
     );
   }
 
-  // A property owner must have an active (KYC-verified) account before they can
+  // A property owner must have an active, KYC-verified account before they can
   // submit a listing for review. Admins acting on a listing are exempt.
   if (input.action === "submit" && !isAdmin(role)) {
     const actor = await User.findById(userId);
     if (!actor || actor.accountStatus !== "active") {
       throw new AppError(
-        "Your account must be verified before submitting a listing for review",
+        "Your account must be active before submitting a listing for review",
+        StatusCodes.FORBIDDEN,
+      );
+    }
+    if (actor.kycStatus !== "verified") {
+      throw new AppError(
+        "KYC verification is required before submitting a listing for review",
         StatusCodes.FORBIDDEN,
       );
     }
@@ -674,10 +680,15 @@ export const mintTitle = async (
   });
 
   let result: Awaited<ReturnType<typeof chain.mintTitle>>;
+  // If the property owner has a linked wallet, mint directly to them.
+  // Otherwise fall back to the custodial minter wallet.
+  const owner = await User.findById(listing.createdBy);
+  const mintTo = owner?.walletAddress ?? undefined;
   try {
     result = await chain.mintTitle({
       listingId: listing.id,
       documentHash: listing.ownershipDocumentHash,
+      to: mintTo,
     });
     await chainTransactions.markMined(chainTx.id, {
       txHash: result.txHash,
