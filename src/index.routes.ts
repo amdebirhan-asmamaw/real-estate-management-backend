@@ -14,6 +14,7 @@ import { notificationRouter } from "./modules/notifications/notification.routes"
 import { savedSearchRouter } from "./modules/savedSearches/savedSearch.routes";
 import { offerRouter } from "./modules/offers/offer.routes";
 import { complianceRouter } from "./modules/compliance/compliance.routes";
+import { purchaseTransactionRouter } from "./modules/purchaseTransactions/purchaseTransaction.routes";
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.use("/notifications", notificationRouter);
 router.use("/saved-searches", savedSearchRouter);
 router.use("/offers", offerRouter);
 router.use("/compliance", complianceRouter);
+router.use("/purchase-transactions", purchaseTransactionRouter);
 
 // Register new module routers here:
 

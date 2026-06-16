@@ -5,6 +5,7 @@ import { AppError } from "../../core/utils/AppError";
 import { isAdmin } from "../listings/listing.service";
 import * as notifications from "../notifications/notification.service";
 import * as compliance from "../compliance/compliance.service";
+import * as purchaseTransactions from "../purchaseTransactions/purchaseTransaction.service";
 import type { CreateOfferInput, RespondOfferInput } from "./offer.validation";
 
 const findOr404 = async (id: string): Promise<IOffer> => {
@@ -101,6 +102,10 @@ export const respond = async (
     message: `Your purchase offer was ${offer.status}.`,
     metadata: { offerId: offer.id, listingId: offer.listing.toString() },
   });
+
+  if (input.action === "accept") {
+    await purchaseTransactions.createFromAcceptedOffer(offer, userId, role);
+  }
 
   return offer;
 };
