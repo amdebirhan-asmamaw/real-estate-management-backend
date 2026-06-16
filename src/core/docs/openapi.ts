@@ -42,6 +42,7 @@ export const openapiSpec: Record<string, unknown> = {
     { name: "Favorites", description: "Saved listings" },
     { name: "Inquiries", description: "Tenant → owner inquiries" },
     { name: "Admin", description: "Admin-only review & user management" },
+    { name: "Leases", description: "Lease agreements & on-chain escrow" },
     { name: "Health", description: "Liveness / readiness" },
   ],
   components: {
@@ -369,6 +370,84 @@ export const openapiSpec: Record<string, unknown> = {
           status: { type: "string", enum: ["open", "responded", "closed"] },
           response: { type: "string" },
           createdAt: { type: "string", format: "date-time" },
+        },
+      },
+      Lease: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          listing: { type: "string" },
+          landlord: { type: "string" },
+          tenant: { type: "string" },
+          status: {
+            type: "string",
+            enum: [
+              "draft",
+              "proposed",
+              "funded",
+              "active",
+              "completed",
+              "terminated",
+              "cancelled",
+              "disputed",
+            ],
+          },
+          monthlyRent: { type: "number" },
+          depositAmount: { type: "number" },
+          currency: { type: "string", example: "USDC" },
+          startDate: { type: "string", format: "date" },
+          endDate: { type: "string", format: "date" },
+          terms: { type: "string" },
+          escrowTxHash: { type: "string", nullable: true },
+          disputeNote: { type: "string", nullable: true },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      CreateLeaseInput: {
+        type: "object",
+        required: [
+          "listingId",
+          "tenantId",
+          "monthlyRent",
+          "depositAmount",
+          "currency",
+          "startDate",
+          "endDate",
+        ],
+        properties: {
+          listingId: { type: "string" },
+          tenantId: { type: "string" },
+          monthlyRent: { type: "number" },
+          depositAmount: { type: "number" },
+          currency: { type: "string", example: "USDC" },
+          startDate: { type: "string", format: "date" },
+          endDate: { type: "string", format: "date" },
+          terms: { type: "string" },
+        },
+      },
+      DisputeResolveInput: {
+        type: "object",
+        required: ["decision"],
+        properties: {
+          decision: {
+            type: "string",
+            enum: ["release_deposit", "refund_deposit", "cancel"],
+          },
+          note: { type: "string" },
+        },
+      },
+      EscrowInfo: {
+        type: "object",
+        properties: {
+          leaseId: { type: "string" },
+          contractAddress: { type: "string" },
+          balance: { type: "string", description: "On-chain token balance (wei string)" },
+          status: { type: "string", description: "On-chain escrow state" },
+          verified: {
+            type: "boolean",
+            description: "true when on-chain state matches DB record",
+          },
         },
       },
     },
@@ -1141,6 +1220,323 @@ export const openapiSpec: Record<string, unknown> = {
         responses: {
           "200": { description: "Updated" },
           "403": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+
+    "/leases": {
+      post: {
+        tags: ["Leases"],
+        summary: "Create a lease draft",
+        description: "Roles: property_owner, admin. Creates the lease in `draft` status.",
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateLeaseInput" },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Lease draft created",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "422": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/mine": {
+      get: {
+        tags: ["Leases"],
+        summary: "Leases where the caller is landlord or tenant",
+        security: bearer,
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope(),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}": {
+      parameters: [
+        { name: "id", in: "path", required: true, schema: { type: "string" } },
+      ],
+      get: {
+        tags: ["Leases"],
+        summary: "Get a single lease",
+        description: "Accessible by the landlord, the tenant, or an admin.",
+        security: bearer,
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/propose": {
+      post: {
+        tags: ["Leases"],
+        summary: "Advance lease from draft → proposed",
+        description: "Roles: property_owner, admin.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Lease proposed",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/fund": {
+      post: {
+        tags: ["Leases"],
+        summary: "Fund the on-chain escrow (admin)",
+        description:
+          "Admin only. Transfers deposit + first month rent into the escrow contract. " +
+          "Both parties must have a linked `walletAddress` before this call.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Escrow funded; lease status → funded",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/activate": {
+      post: {
+        tags: ["Leases"],
+        summary: "Release first month rent and activate lease (admin)",
+        description: "Admin only. Releases first month to landlord; lease status → active.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Lease activated",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/cancel": {
+      post: {
+        tags: ["Leases"],
+        summary: "Cancel lease before activation (parties/admin)",
+        description:
+          "Accessible by either party or an admin. Must be called before `/activate`. " +
+          "Triggers a full escrow refund if funds are held.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Lease cancelled; escrow refunded",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/complete": {
+      post: {
+        tags: ["Leases"],
+        summary: "Mark lease completed and refund deposit to tenant (admin)",
+        description: "Admin only. Releases deposit back to tenant; lease status → completed.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Lease completed; deposit refunded to tenant",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/terminate": {
+      post: {
+        tags: ["Leases"],
+        summary: "Terminate lease and release deposit to landlord (admin)",
+        description:
+          "Admin only. Releases deposit to landlord as penalty; lease status → terminated.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Lease terminated; deposit released to landlord",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/dispute": {
+      post: {
+        tags: ["Leases"],
+        summary: "Flag a dispute on an active lease (parties/admin)",
+        description: "Accessible by either party or an admin. Sets lease status → disputed.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Dispute flagged",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/dispute/resolve": {
+      post: {
+        tags: ["Leases"],
+        summary: "Resolve a disputed lease (admin)",
+        description:
+          "Admin only. `release_deposit` sends deposit to landlord; " +
+          "`refund_deposit` returns it to tenant; `cancel` voids the lease.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/DisputeResolveInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Dispute resolved",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/Lease"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "409": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
+        },
+      },
+    },
+    "/leases/{id}/escrow": {
+      get: {
+        tags: ["Leases"],
+        summary: "On-chain escrow verification",
+        description: "Reads escrow state from the chain and compares it to the DB record.",
+        security: bearer,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "OK",
+            content: {
+              "application/json": {
+                schema: envelope("#/components/schemas/EscrowInfo"),
+              },
+            },
+          },
+          "401": { $ref: "#/components/responses/Error" },
+          "403": { $ref: "#/components/responses/Error" },
+          "404": { $ref: "#/components/responses/Error" },
+          "503": { $ref: "#/components/responses/Error" },
         },
       },
     },

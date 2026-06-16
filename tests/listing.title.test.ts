@@ -14,6 +14,7 @@ import * as service from "../src/modules/listings/listing.service";
 import * as chain from "../src/core/blockchain/propertyTitle.service";
 import { Listing } from "../src/modules/listings/listing.model";
 import { AuditLog } from "../src/modules/audit/audit.model";
+import { ChainTransaction } from "../src/modules/chainTransactions/chainTransaction.model";
 import { AppError } from "../src/core/utils/AppError";
 import type { CreateListingInput } from "../src/modules/listings/listing.validation";
 
@@ -68,6 +69,14 @@ describe("listing title minting", () => {
       action: "listing.title_minted",
     });
     expect(logs).toHaveLength(1);
+
+    const tx = await ChainTransaction.findOne({
+      targetType: "listing",
+      targetId: doc.id,
+      operation: "title.mint",
+    });
+    expect(tx?.status).toBe("mined");
+    expect(tx?.txHash).toBe("0xtx");
   });
 
   it("refuses to mint twice", async () => {
@@ -85,14 +94,17 @@ describe("listing title minting", () => {
     (chain.getTitle as jest.Mock).mockResolvedValueOnce({
       owner: "0xMinter",
       documentHash: "deadbeef",
+      status: "active",
     });
     const info = await service.getTitleInfo(doc.id, null, null);
     expect(info.tokenId).toBe("7");
     expect(info.verified).toBe(true);
+    expect(info.status).toBe("active");
 
     (chain.getTitle as jest.Mock).mockResolvedValueOnce({
       owner: "0xMinter",
       documentHash: "tampered",
+      status: "disputed",
     });
     const tampered = await service.getTitleInfo(doc.id, null, null);
     expect(tampered.verified).toBe(false);

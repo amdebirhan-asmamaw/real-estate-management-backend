@@ -4,6 +4,8 @@ import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as chain from "../../core/blockchain/propertyTitle.service";
+import * as chainTransactions from "../chainTransactions/chainTransaction.service";
+import * as notifications from "../notifications/notification.service";
 import type { AuditAction } from "../audit/audit.model";
 import type { FilterQuery } from "mongoose";
 import type {
@@ -225,13 +227,19 @@ export const transition = async (
     );
   }
 
-  // A property owner must have an active (KYC-verified) account before they can
+  // A property owner must have an active, KYC-verified account before they can
   // submit a listing for review. Admins acting on a listing are exempt.
   if (input.action === "submit" && !isAdmin(role)) {
     const actor = await User.findById(userId);
     if (!actor || actor.accountStatus !== "active") {
       throw new AppError(
-        "Your account must be verified before submitting a listing for review",
+        "Your account must be active before submitting a listing for review",
+        StatusCodes.FORBIDDEN,
+      );
+    }
+    if (actor.kycStatus !== "verified") {
+      throw new AppError(
+        "KYC verification is required before submitting a listing for review",
         StatusCodes.FORBIDDEN,
       );
     }
@@ -280,6 +288,22 @@ export const transition = async (
     },
   });
 
+  if (rule.actor === "admin_only") {
+    await notifications.notify({
+      recipient: listing.createdBy.toString(),
+      type:
+        input.action === "publish"
+          ? "listing.published"
+          : "listing.review_update",
+      title:
+        input.action === "publish"
+          ? "Listing published"
+          : "Listing review updated",
+      message: `Your listing "${listing.title}" is now ${listing.status}.`,
+      metadata: { listingId: listing.id, action: input.action },
+    });
+  }
+
   return listing;
 };
 
@@ -298,6 +322,13 @@ export const discover = async (
           [q.swLng, q.swLat],
           [q.neLng, q.neLat],
         ],
+      },
+    };
+  } else if (q.polygon !== undefined) {
+    // Custom drawn boundary.
+    filter.location = {
+      $geoWithin: {
+        $polygon: q.polygon,
       },
     };
   } else if (q.lng !== undefined) {
@@ -578,6 +609,14 @@ export const reviewDocument = async (
     metadata: { docId, type: doc.type },
   });
 
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.review_update",
+    title: "Ownership document reviewed",
+    message: `Your ${doc.type} document was ${doc.status}.`,
+    metadata: { listingId: listing.id, docId, decision },
+  });
+
   return listing;
 };
 
@@ -587,6 +626,7 @@ export interface TitleInfo {
   tokenId: string;
   contractAddress?: string;
   owner: string;
+  status: string;
   onChainHash: string;
   offChainHash?: string;
   verified: boolean;
@@ -631,10 +671,34 @@ export const mintTitle = async (
     );
   }
 
-  const result = await chain.mintTitle({
-    listingId: listing.id,
-    documentHash: listing.ownershipDocumentHash,
+  const chainTx = await chainTransactions.begin({
+    operation: "title.mint",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id },
   });
+
+  let result: Awaited<ReturnType<typeof chain.mintTitle>>;
+  // If the property owner has a linked wallet, mint directly to them.
+  // Otherwise fall back to the custodial minter wallet.
+  const owner = await User.findById(listing.createdBy);
+  const mintTo = owner?.walletAddress ?? undefined;
+  try {
+    result = await chain.mintTitle({
+      listingId: listing.id,
+      documentHash: listing.ownershipDocumentHash,
+      to: mintTo,
+    });
+    await chainTransactions.markMined(chainTx.id, {
+      txHash: result.txHash,
+      contractAddress: result.contractAddress,
+      metadata: { listingId: listing.id, tokenId: result.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   listing.tokenId = result.tokenId;
   listing.contractAddress = result.contractAddress;
@@ -675,6 +739,7 @@ export const getTitleInfo = async (
     tokenId: listing.tokenId,
     contractAddress: listing.contractAddress,
     owner: onChain.owner,
+    status: onChain.status,
     onChainHash: onChain.documentHash,
     offChainHash: listing.ownershipDocumentHash,
     verified: onChain.documentHash === listing.ownershipDocumentHash,

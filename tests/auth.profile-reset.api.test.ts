@@ -32,39 +32,29 @@ describe("PATCH /api/v1/auth/me", () => {
     jest.clearAllMocks();
   });
 
-  it("updates the caller's profile and derives wallet status", async () => {
+  it("updates the caller's profile fields", async () => {
     const reg = await register("profile@example.com");
     const token = reg.body.data.tokens.accessToken;
 
-    const walletAddress = "0x1111111111111111111111111111111111111111";
     const updated = await request(app)
       .patch("/api/v1/auth/me")
       .set(bearer(token))
-      .send({ name: "Updated User", walletAddress });
+      .send({ name: "Updated User", phone: "+251911000000" });
 
     expect(updated.status).toBe(200);
     expect(updated.body.data.name).toBe("Updated User");
-    expect(updated.body.data.walletAddress).toBe(walletAddress);
-    expect(updated.body.data.walletStatus).toBe("linked");
-
-    const unlinked = await request(app)
-      .patch("/api/v1/auth/me")
-      .set(bearer(token))
-      .send({ walletAddress: "" });
-
-    expect(unlinked.status).toBe(200);
-    expect(unlinked.body.data).not.toHaveProperty("walletAddress");
-    expect(unlinked.body.data.walletStatus).toBe("unlinked");
+    expect(updated.body.data.phone).toBe("+251911000000");
+    expect(updated.body.data.walletStatus).toBe("unlinked");
   });
 
-  it("rejects invalid wallet addresses", async () => {
-    const reg = await register("bad-wallet@example.com");
+  it("rejects empty profile updates", async () => {
+    const reg = await register("empty-profile@example.com");
     const token = reg.body.data.tokens.accessToken;
 
     const res = await request(app)
       .patch("/api/v1/auth/me")
       .set(bearer(token))
-      .send({ walletAddress: "not-a-wallet" });
+      .send({});
 
     expect(res.status).toBe(422);
   });

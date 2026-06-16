@@ -8,5 +8,8 @@ export const PROPERTY_TITLE_ABI = [
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function documentHashOf(uint256 tokenId) view returns (bytes32)",
   "function listingIdOf(uint256 tokenId) view returns (string)",
+  "function tokenIdOfListing(string listingId) view returns (uint256)",
+  "function titleStatusOf(uint256 tokenId) view returns (uint8)",
   "event TitleMinted(uint256 indexed tokenId, address indexed to, string listingId, bytes32 documentHash)",
+  "event TitleStatusChanged(uint256 indexed tokenId, uint8 indexed status, string reason)",
 ] as const;

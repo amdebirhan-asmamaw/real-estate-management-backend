@@ -88,6 +88,11 @@ describe("Inquiries API", () => {
       .set(bearer(owner));
     expect(received.body.data).toHaveLength(1);
 
+    const ownerNotifications = await request(app)
+      .get("/api/v1/notifications")
+      .set(bearer(owner));
+    expect(ownerNotifications.body.data.items[0].type).toBe("inquiry.received");
+
     const mine = await request(app)
       .get("/api/v1/inquiries/mine")
       .set(bearer(tenant));
@@ -100,6 +105,11 @@ describe("Inquiries API", () => {
       .send({ response: "Yes, come by this weekend." });
     expect(responded.status).toBe(200);
     expect(responded.body.data.status).toBe("responded");
+
+    const tenantNotifications = await request(app)
+      .get("/api/v1/notifications")
+      .set(bearer(tenant));
+    expect(tenantNotifications.body.data.items[0].type).toBe("inquiry.responded");
   });
 
   it("forbids a non-owner from responding to an inquiry (403)", async () => {

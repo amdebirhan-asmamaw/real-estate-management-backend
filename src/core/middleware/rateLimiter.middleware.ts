@@ -32,3 +32,17 @@ export const authLimiter = rateLimit({
     message: "Too many authentication attempts, please try again later.",
   },
 });
+
+/**
+ * Very strict limiter for password-reset endpoints to prevent email bombing.
+ * 5 requests per 15-minute window.
+ */
+export const passwordResetLimiter = rateLimit({
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    success: false,
+    message: "Too many password reset requests, please try again later.",
+  },
+});

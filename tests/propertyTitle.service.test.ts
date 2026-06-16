@@ -18,6 +18,7 @@ const mockContract = {
   mintTitle: jest.fn().mockResolvedValue(mintTx),
   ownerOf: jest.fn().mockResolvedValue("0xOwnerAddress"),
   documentHashOf: jest.fn().mockResolvedValue("0xabc123"),
+  titleStatusOf: jest.fn().mockResolvedValue(1),
   interface: {
     parseLog: jest.fn().mockReturnValue({
       name: "TitleMinted",
@@ -62,5 +63,6 @@ describe("propertyTitle.service", () => {
     const title = await getTitle("1");
     expect(title.owner).toBe("0xOwnerAddress");
     expect(title.documentHash).toBe("abc123");
+    expect(title.status).toBe("active");
   });
 });

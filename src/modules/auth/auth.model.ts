@@ -2,6 +2,8 @@ import { Schema, model, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export type UserRole = 'super_admin' | 'admin' | 'property_owner' | 'tenant';
+export const USER_ROLES = ['super_admin', 'admin', 'property_owner', 'tenant'] as const;
+export const PUBLIC_REGISTRATION_ROLES = ['property_owner', 'tenant'] as const;
 
 export type AccountStatus =
   | 'pending'
@@ -10,7 +12,7 @@ export type AccountStatus =
   | 'blocked'
   | 'rejected';
 
-export type KycStatus = 'not_started' | 'pending' | 'verified' | 'rejected';
+export type KycStatus = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected';
 
 export type KycDocumentType =
   | 'national_id'
@@ -29,18 +31,33 @@ export interface IKycDocument {
   uploadedAt: Date;
 }
 
+export interface IWalletLinkChallenge {
+  walletAddress: string;
+  nonceHash: string;
+  message: string;
+  expiresAt: Date;
+}
+
 export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
   role: UserRole;
+  phone?: string;
+  profileImage?: string;
   accountStatus: AccountStatus;
   kycStatus: KycStatus;
   emailVerified: boolean;
+  mustResetPassword: boolean;
   walletAddress?: string;
   walletStatus: 'unlinked' | 'linked';
+  walletLinkChallenge?: IWalletLinkChallenge;
   kycDocuments: Types.DocumentArray<IKycDocument>;
   kycReviewNote?: string;
+  failedLoginAttempts: number;
+  lastFailedLoginAt?: Date;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -61,6 +78,22 @@ const kycDocumentSchema = new Schema<IKycDocument>({
   },
   uploadedAt: { type: Date, default: () => new Date() },
 });
+
+const walletLinkChallengeSchema = new Schema<IWalletLinkChallenge>(
+  {
+    walletAddress: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      match: [/^0x[a-fA-F0-9]{40}$/, 'Please provide a valid wallet address'],
+    },
+    nonceHash: { type: String, required: true },
+    message: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
 
 const userSchema = new Schema<IUser>(
   {
@@ -97,10 +130,17 @@ const userSchema = new Schema<IUser>(
     },
     kycStatus: {
       type: String,
-      enum: ['not_started', 'pending', 'verified', 'rejected'],
+      enum: ['not_started', 'pending', 'under_review', 'verified', 'rejected'],
       default: 'not_started',
     },
     emailVerified: { type: Boolean, default: false },
+    mustResetPassword: { type: Boolean, default: false },
+    phone: {
+      type: String,
+      trim: true,
+      maxlength: [20, 'Phone number cannot exceed 20 characters'],
+    },
+    profileImage: { type: String, trim: true },
     // Groundwork for the later "mint to owner wallet" upgrade (custodial today).
     walletAddress: {
       type: String,
@@ -113,8 +153,13 @@ const userSchema = new Schema<IUser>(
       enum: ['unlinked', 'linked'],
       default: 'unlinked',
     },
+    walletLinkChallenge: walletLinkChallengeSchema,
     kycDocuments: { type: [kycDocumentSchema], default: [] },
     kycReviewNote: String,
+    failedLoginAttempts: { type: Number, default: 0 },
+    lastFailedLoginAt: Date,
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
   },
   {
     timestamps: true,
@@ -123,7 +168,12 @@ const userSchema = new Schema<IUser>(
       transform: (_doc, ret: Record<string, unknown>) => {
         // Private KYC documents are never part of a user's JSON.
         delete ret.kycDocuments;
+        delete ret.walletLinkChallenge;
         delete ret.password;
+        delete ret.passwordResetToken;
+        delete ret.passwordResetExpires;
+        delete ret.failedLoginAttempts;
+        delete ret.lastFailedLoginAt;
         return ret;
       },
     },

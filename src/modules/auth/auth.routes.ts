@@ -2,12 +2,14 @@ import { Router } from 'express';
 import * as authController from './auth.controller';
 import { validate } from '../../core/middleware/validate.middleware';
 import { authenticate } from '../../core/middleware/auth.middleware';
-import { authLimiter } from '../../core/middleware/rateLimiter.middleware';
+import { authLimiter, passwordResetLimiter } from '../../core/middleware/rateLimiter.middleware';
 import {
   registerSchema,
   loginSchema,
   refreshTokenSchema,
   changePasswordSchema,
+  walletChallengeSchema,
+  walletLinkSchema,
   updateProfileSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -22,20 +24,26 @@ authRouter.post('/refresh-token', authLimiter, validate(refreshTokenSchema), aut
 authRouter.post('/logout', validate(refreshTokenSchema), authController.logout);
 authRouter.post(
   '/forgot-password',
-  authLimiter,
+  passwordResetLimiter,
   validate(forgotPasswordSchema),
-  authController.forgotPassword
+  authController.forgotPassword,
 );
 authRouter.post(
   '/reset-password',
-  authLimiter,
+  passwordResetLimiter,
   validate(resetPasswordSchema),
-  authController.resetPassword
+  authController.resetPassword,
 );
 
 // Protected routes
 authRouter.get('/me', authenticate, authController.getMe);
 authRouter.patch('/me', authenticate, validate(updateProfileSchema), authController.updateProfile);
+authRouter.patch(
+  '/profile',
+  authenticate,
+  validate(updateProfileSchema),
+  authController.updateProfile,
+);
 authRouter.get('/sessions', authenticate, authController.sessions);
 authRouter.post('/logout-all', authenticate, authController.logoutAll);
 authRouter.post(
@@ -44,3 +52,16 @@ authRouter.post(
   validate(changePasswordSchema),
   authController.changePassword
 );
+authRouter.post(
+  '/wallet/challenge',
+  authenticate,
+  validate(walletChallengeSchema),
+  authController.walletChallenge
+);
+authRouter.post(
+  '/wallet/link',
+  authenticate,
+  validate(walletLinkSchema),
+  authController.linkWallet
+);
+authRouter.delete('/wallet', authenticate, authController.unlinkWallet);

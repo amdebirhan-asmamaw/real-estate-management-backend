@@ -2,6 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import { Inquiry, IInquiry } from "./inquiry.model";
 import { AppError } from "../../core/utils/AppError";
 import { isAdmin, getListingById } from "../listings/listing.service";
+import * as notifications from "../notifications/notification.service";
 import type { CreateInquiryInput, UpdateInquiryInput } from "./inquiry.validation";
 
 /** A prospective tenant sends an inquiry about a (published) listing. */
@@ -13,12 +14,22 @@ export const createInquiry = async (
   // Visible-to-user check: throws 404 for non-published listings.
   const listing = await getListingById(input.listingId, inquirerId, role);
 
-  return Inquiry.create({
+  const inquiry = await Inquiry.create({
     listing: listing.id,
     listingOwner: listing.createdBy,
     inquirer: inquirerId,
     message: input.message,
   });
+
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "inquiry.received",
+    title: "New listing inquiry",
+    message: `You received a new inquiry for "${listing.title}".`,
+    metadata: { listingId: listing.id, inquiryId: inquiry.id },
+  });
+
+  return inquiry;
 };
 
 /** Inquiries the caller has sent. */
@@ -61,5 +72,16 @@ export const updateInquiry = async (
   if (input.status) inquiry.status = input.status;
 
   await inquiry.save();
+
+  if (input.response !== undefined || input.status) {
+    await notifications.notify({
+      recipient: inquiry.inquirer.toString(),
+      type: "inquiry.responded",
+      title: "Inquiry updated",
+      message: "Your listing inquiry has been updated.",
+      metadata: { inquiryId: inquiry.id, status: inquiry.status },
+    });
+  }
+
   return inquiry;
 };

@@ -10,6 +10,8 @@ npm run build          # Clean dist/ then compile with tsc
 npm start              # Run compiled dist/server.js
 npm run typecheck      # tsc --noEmit (src only; tests are type-checked by ts-jest)
 npm run lint           # ESLint over src/**/*.ts
+npm run lint:fix       # ESLint with --fix
+npm run format         # Prettier --write over src/**/*.ts (format:check to verify only)
 npm test               # Jest, runs in band
 npm run test:coverage  # Jest with coverage
 
@@ -18,7 +20,7 @@ npx jest tests/auth.test.ts
 npx jest -t "logs in with valid credentials"
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build; keep all four green.
+Requires Node >= 20. CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build; keep all four green. Husky + `lint-staged` run `eslint --fix` and `prettier --write` on staged `src/**/*.ts` at commit time, so commits are auto-formatted.
 
 ## Architecture
 
@@ -65,7 +67,14 @@ This is the backend for a verified, decentralized real-estate platform, built in
 - **Audit log** (`src/modules/audit/`): every lifecycle transition and document review writes a queryable `AuditLog` entry via best-effort `record()` (failures never break the business op).
 - **Uploader is mockable:** tests `jest.mock("../src/core/utils/uploader", …)` to avoid real Cloudinary calls.
 - **Favorites & inquiries** (`src/modules/favorites`, `src/modules/inquiries`, Increment 1.5): any authenticated user saves/unsaves listings (unique `(user, listing)`) and sends inquiries; both reuse `listing.service.getListingById` to enforce published-only visibility. Inquiries denormalize `listingOwner`; only that owner or an admin may respond/update.
-- **On-chain titles** (`src/core/blockchain/`, Increment 2): `propertyTitle.service.ts` (ethers v6) mints/reads a `PropertyTitle` ERC-721. `listing.service.mintTitle` is an admin-only, mint-once action requiring a verified listing; it records `tokenId`/`contractAddress`/`blockchainTxHash`/`titleCertificateId` and audits `listing.title_minted`. `getTitleInfo` compares the on-chain hash to `ownershipDocumentHash`. Minting is **custodial** (platform wallet) for now. The contract lives in the separate `real-estate-contracts` Hardhat repo (scaffolded: `PropertyTitle.sol`, tests, deploy + `export-abi`); `propertyTitle.abi.ts` is parity-matched with its compiled ABI. Chain env (`BLOCKCHAIN_RPC_URL`, `TITLE_CONTRACT_ADDRESS`, `MINTER_PRIVATE_KEY`) is optional; the service is mocked in tests like the uploader.
+- **On-chain titles** (`src/core/blockchain/`, Increment 2): `propertyTitle.service.ts` (ethers v6) mints/reads a `PropertyTitle` ERC-721. `listing.service.mintTitle` is an admin-only, mint-once action requiring a verified listing; it records `tokenId`/`contractAddress`/`blockchainTxHash`/`titleCertificateId` and audits `listing.title_minted`. `getTitleInfo` compares the on-chain hash to `ownershipDocumentHash`. Minting is **custodial** (platform wallet) for now. The contract lives in the separate `real-estate-contracts` Hardhat repo (scaffolded: `PropertyTitle.sol`, tests, deploy + `export-abi`); `propertyTitle.abi.ts` is parity-matched with its compiled ABI. Chain env (`BLOCKCHAIN_RPC_URL`, `TITLE_CONTRACT_ADDRESS`, `MINTER_PRIVATE_KEY`) is optional; the service is mocked in tests like the uploader. The lease flow calls the escrow chain before persisting state; a reconciliation job that reads on-chain escrow state via getEscrow is future work.
+
+## Lease escrow flow (backend wiring)
+
+1. **Deploy contracts** — in the `real-estate-contracts` Hardhat repo run `npm run deploy:local`. Note the `leaseEscrow` and `mockToken` addresses written to `deployments/localhost.json`.
+2. **Backend `.env`** — add `ESCROW_CONTRACT_ADDRESS=<leaseEscrow>` and `ESCROW_TOKEN_ADDRESS=<mockToken>` alongside the existing `BLOCKCHAIN_RPC_URL` and `MINTER_PRIVATE_KEY` vars (the custodial minter wallet is reused).
+3. **Operational precondition** — the custodial wallet must hold enough stablecoin and have approved the escrow contract before any `/fund` call. For local demos: call `MockERC20.mint(<minterAddress>, amount)` then `MockERC20.approve(<escrowAddress>, amount)` (e.g. via `npx hardhat console --network localhost`).
+4. **Endpoint flow** — `POST /leases` → `POST /leases/{id}/propose` → (admin) `POST /leases/{id}/fund` → `POST /leases/{id}/activate` → `POST /leases/{id}/complete` or `POST /leases/{id}/terminate`. Disputes: `POST /leases/{id}/dispute` then `POST /leases/{id}/dispute/resolve`. Both parties must have a linked `walletAddress` on their user record before `/fund` is called.
 
 ## Testing
 

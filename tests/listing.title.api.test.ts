@@ -8,7 +8,11 @@ jest.mock("../src/core/blockchain/propertyTitle.service", () => ({
   }),
   getTitle: jest
     .fn()
-    .mockResolvedValue({ owner: "0xMinter", documentHash: "deadbeef" }),
+    .mockResolvedValue({
+      owner: "0xMinter",
+      documentHash: "deadbeef",
+      status: "active",
+    }),
 }));
 
 import request from "supertest";

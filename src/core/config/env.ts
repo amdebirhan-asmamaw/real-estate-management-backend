@@ -59,6 +59,9 @@ const envSchema = Joi.object({
   SMTP_USER: Joi.string().allow("").default(""),
   SMTP_PASS: Joi.string().allow("").default(""),
   PASSWORD_RESET_EXPIRES_MINUTES: Joi.number().integer().min(5).max(120).default(30),
+  // Lease escrow (ERC-20). Optional so the app/tests boot without a chain.
+  ESCROW_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
+  ESCROW_TOKEN_ADDRESS: Joi.string().allow("").default(""),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -103,6 +106,8 @@ interface Env {
   SMTP_USER: string;
   SMTP_PASS: string;
   PASSWORD_RESET_EXPIRES_MINUTES: number;
+  ESCROW_CONTRACT_ADDRESS: string;
+  ESCROW_TOKEN_ADDRESS: string;
 }
 
 const validated = value as Env;

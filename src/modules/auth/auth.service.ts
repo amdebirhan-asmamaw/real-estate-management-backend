@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { StatusCodes } from 'http-status-codes';
+import { getAddress, verifyMessage } from 'ethers';
 import { User, IUser, canAuthenticate } from './auth.model';
 import { RefreshSession, IRefreshSession } from './session.model';
 import { PasswordResetToken } from './passwordResetToken.model';
@@ -13,6 +14,9 @@ import {
   verifyRefreshToken,
   getTokenExpiry,
 } from '../../core/utils/jwt';
+import * as audit from '../audit/audit.service';
+import * as notifications from '../notifications/notification.service';
+import { Lease } from '../leases/lease.model';
 import type {
   RegisterInput,
   LoginInput,
@@ -33,11 +37,14 @@ interface PublicUser {
   name: string;
   email: string;
   role: string;
+  phone?: string;
+  profileImage?: string;
   accountStatus: string;
   kycStatus: string;
   emailVerified: boolean;
   walletAddress?: string;
   walletStatus: string;
+  mustResetPassword: boolean;
 }
 
 interface AuthResult {
@@ -57,6 +64,15 @@ const buildTokens = (payload: JwtPayload): AuthTokens => ({
 });
 
 const hashToken = (token: string): string => sha256(Buffer.from(token));
+const hashNonce = (nonce: string): string => sha256(Buffer.from(nonce));
+
+const normalizeWalletAddress = (walletAddress: string): string => {
+  try {
+    return getAddress(walletAddress).toLowerCase();
+  } catch {
+    throw new AppError('Invalid wallet address', StatusCodes.BAD_REQUEST);
+  }
+};
 
 const buildResetUrl = (token: string): string => {
   const base = env.APP_BASE_URL.replace(/\/$/, '');
@@ -68,11 +84,14 @@ const toPublicUser = (user: IUser): PublicUser => ({
   name: user.name,
   email: user.email,
   role: user.role,
+  phone: user.phone,
+  profileImage: user.profileImage,
   accountStatus: user.accountStatus,
   kycStatus: user.kycStatus,
   emailVerified: user.emailVerified,
   walletAddress: user.walletAddress,
   walletStatus: user.walletStatus,
+  mustResetPassword: user.mustResetPassword,
 });
 
 const blockedMessage = (status: string): string => {
@@ -132,6 +151,23 @@ export const register = async (
 
   const user = await User.create(input);
   const tokens = await issueSession(user, ctx);
+
+  await audit.record({
+    actor: user.id as string,
+    actorRole: user.role,
+    action: 'user.registered',
+    targetType: 'user',
+    targetId: user.id as string,
+    metadata: { role: user.role, ip: ctx?.ip },
+  });
+
+  await notifications.notify({
+    recipient: user.id as string,
+    type: 'auth.registration',
+    title: 'Welcome to the platform',
+    message: `Your ${user.role.replace('_', ' ')} account has been created successfully.`,
+  });
+
   return { user: toPublicUser(user), tokens };
 };
 
@@ -145,15 +181,52 @@ export const login = async (
   }
 
   if (!canAuthenticate(user.accountStatus)) {
+    await audit.record({
+      actor: user.id as string,
+      actorRole: user.role,
+      action: 'user.login_failed',
+      targetType: 'user',
+      targetId: user.id as string,
+      metadata: { reason: 'account_status', status: user.accountStatus, ip: ctx?.ip },
+    });
     throw new AppError(blockedMessage(user.accountStatus), StatusCodes.FORBIDDEN);
   }
 
   const isMatch = await user.comparePassword(input.password);
   if (!isMatch) {
+    user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+    user.lastFailedLoginAt = new Date();
+    await user.save();
+
+    await audit.record({
+      actor: user.id as string,
+      actorRole: user.role,
+      action: 'user.login_failed',
+      targetType: 'user',
+      targetId: user.id as string,
+      metadata: { reason: 'bad_password', attempts: user.failedLoginAttempts, ip: ctx?.ip },
+    });
+
     throw new AppError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
+  if (user.failedLoginAttempts > 0) {
+    user.failedLoginAttempts = 0;
+    user.lastFailedLoginAt = undefined;
+    await user.save();
+  }
+
   const tokens = await issueSession(user, ctx);
+
+  await audit.record({
+    actor: user.id as string,
+    actorRole: user.role,
+    action: 'user.logged_in',
+    targetType: 'user',
+    targetId: user.id as string,
+    metadata: { ip: ctx?.ip, userAgent: ctx?.userAgent },
+  });
+
   return { user: toPublicUser(user), tokens };
 };
 
@@ -180,7 +253,6 @@ export const refreshTokens = async (
     throw new AppError('Session not found', StatusCodes.UNAUTHORIZED);
   }
   if (session.revokedAt) {
-    // Reuse of a rotated token — revoke every live token in the family.
     await RefreshSession.updateMany(
       { family: session.family, revokedAt: { $exists: false } },
       { revokedAt: new Date() },
@@ -196,7 +268,6 @@ export const refreshTokens = async (
     throw new AppError('User not found or not allowed to sign in', StatusCodes.UNAUTHORIZED);
   }
 
-  // Rotate: revoke the presented session, issue a new one in the same family.
   session.revokedAt = new Date();
   await session.save();
 
@@ -227,24 +298,6 @@ export const logoutAll = async (userId: string): Promise<void> => {
     { user: userId, revokedAt: { $exists: false } },
     { revokedAt: new Date() },
   );
-};
-
-export const updateProfile = async (
-  userId: string,
-  input: UpdateProfileInput,
-): Promise<PublicUser> => {
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new AppError('User not found', StatusCodes.NOT_FOUND);
-  }
-
-  if (input.name !== undefined) user.name = input.name;
-  if (input.walletAddress !== undefined) {
-    user.walletAddress = input.walletAddress || undefined;
-  }
-
-  await user.save();
-  return toPublicUser(user);
 };
 
 export interface SessionSummary {
@@ -290,7 +343,8 @@ export const changePassword = async (
   if (samePassword) {
     throw new AppError('New password must differ from current password', StatusCodes.BAD_REQUEST);
   }
-  user.password = newPassword; // hashed by the pre-save hook
+  user.password = newPassword;
+  user.mustResetPassword = false;
   await user.save();
   await logoutAll(userId);
 };
@@ -299,7 +353,6 @@ export const requestPasswordReset = async (
   input: ForgotPasswordInput,
 ): Promise<void> => {
   const user = await User.findOne({ email: input.email });
-  // Always return success so callers cannot enumerate registered accounts.
   if (!user || !canAuthenticate(user.accountStatus)) {
     return;
   }
@@ -325,6 +378,14 @@ export const requestPasswordReset = async (
     buildResetUrl(rawToken),
     env.PASSWORD_RESET_EXPIRES_MINUTES,
   );
+
+  await audit.record({
+    actor: user.id as string,
+    actorRole: user.role,
+    action: 'user.password_reset_requested',
+    targetType: 'user',
+    targetId: user.id as string,
+  });
 };
 
 export const resetPassword = async (
@@ -351,9 +412,25 @@ export const resetPassword = async (
   }
 
   user.password = input.newPassword;
+  user.mustResetPassword = false;
   token.usedAt = new Date();
   await Promise.all([user.save(), token.save()]);
   await logoutAll(user.id as string);
+
+  await audit.record({
+    actor: user.id as string,
+    actorRole: user.role,
+    action: 'user.password_reset',
+    targetType: 'user',
+    targetId: user.id as string,
+  });
+
+  await notifications.notify({
+    recipient: user.id as string,
+    type: 'auth.password_changed',
+    title: 'Password reset complete',
+    message: 'Your password has been reset. If you did not do this, contact support immediately.',
+  });
 };
 
 export const getMe = async (userId: string): Promise<PublicUser> => {
@@ -361,5 +438,187 @@ export const getMe = async (userId: string): Promise<PublicUser> => {
   if (!user) {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
   }
+  return toPublicUser(user);
+};
+
+export const updateProfile = async (
+  userId: string,
+  input: UpdateProfileInput,
+): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  if (input.name !== undefined) user.name = input.name;
+  if (input.phone !== undefined) user.phone = input.phone || undefined;
+  if (input.profileImage !== undefined) user.profileImage = input.profileImage || undefined;
+  await user.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: user.role,
+    action: 'user.profile_updated',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { fields: Object.keys(input) },
+  });
+
+  return toPublicUser(user);
+};
+
+export interface WalletChallenge {
+  walletAddress: string;
+  message: string;
+  expiresAt: Date;
+}
+
+const buildWalletLinkMessage = (
+  user: IUser,
+  walletAddress: string,
+  nonce: string,
+  expiresAt: Date,
+): string =>
+  [
+    'Real Estate Marketplace wallet linking',
+    '',
+    `User: ${user.id}`,
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Expires At: ${expiresAt.toISOString()}`,
+  ].join('\n');
+
+export const createWalletChallenge = async (
+  userId: string,
+  walletAddress: string,
+): Promise<WalletChallenge> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  const normalized = normalizeWalletAddress(walletAddress);
+  const nonce = randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const message = buildWalletLinkMessage(user, normalized, nonce, expiresAt);
+
+  user.walletLinkChallenge = {
+    walletAddress: normalized,
+    nonceHash: hashNonce(nonce),
+    message,
+    expiresAt,
+  };
+  await user.save();
+
+  return { walletAddress: normalized, message, expiresAt };
+};
+
+export const linkWallet = async (
+  userId: string,
+  walletAddress: string,
+  signature: string,
+): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  const normalized = normalizeWalletAddress(walletAddress);
+  const challenge = user.walletLinkChallenge;
+  if (!challenge) {
+    throw new AppError('No active wallet challenge', StatusCodes.CONFLICT);
+  }
+  if (challenge.expiresAt.getTime() < Date.now()) {
+    user.walletLinkChallenge = undefined;
+    await user.save();
+    throw new AppError('Wallet challenge expired', StatusCodes.CONFLICT);
+  }
+  if (challenge.walletAddress !== normalized) {
+    throw new AppError(
+      'Wallet address does not match the active challenge',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  let recovered: string;
+  try {
+    recovered = verifyMessage(challenge.message, signature).toLowerCase();
+  } catch {
+    throw new AppError('Invalid wallet signature', StatusCodes.UNAUTHORIZED);
+  }
+  if (recovered !== normalized) {
+    throw new AppError(
+      'Wallet signature does not match walletAddress',
+      StatusCodes.UNAUTHORIZED,
+    );
+  }
+
+  const existing = await User.findOne({
+    _id: { $ne: user._id },
+    walletAddress: normalized,
+  });
+  if (existing) {
+    throw new AppError(
+      'Wallet address is already linked to another account',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.walletAddress = normalized;
+  user.walletStatus = 'linked';
+  user.walletLinkChallenge = undefined;
+  await user.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: user.role,
+    action: 'user.wallet_linked',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { walletAddress: normalized },
+  });
+
+  await notifications.notify({
+    recipient: userId,
+    type: 'auth.registration',
+    title: 'Wallet linked',
+    message: `Your wallet (${normalized.slice(0, 6)}…${normalized.slice(-4)}) has been linked to your account.`,
+    metadata: { walletAddress: normalized },
+  });
+
+  return toPublicUser(user);
+};
+
+export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  const activeLease = await Lease.findOne({
+    $or: [{ landlord: userId }, { tenant: userId }],
+    status: { $in: ['proposed', 'active', 'disputed'] },
+    'escrow.state': { $in: ['funded', 'active'] },
+  });
+  if (activeLease) {
+    throw new AppError(
+      'Cannot unlink wallet while you have active or funded lease escrows',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.walletAddress = undefined;
+  user.walletStatus = 'unlinked';
+  user.walletLinkChallenge = undefined;
+  await user.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: user.role,
+    action: 'user.wallet_unlinked',
+    targetType: 'user',
+    targetId: userId,
+  });
+
   return toPublicUser(user);
 };

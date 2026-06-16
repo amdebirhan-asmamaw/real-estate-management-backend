@@ -7,6 +7,8 @@ import type {
   LoginInput,
   RefreshTokenInput,
   ChangePasswordInput,
+  WalletChallengeInput,
+  WalletLinkInput,
   UpdateProfileInput,
   ForgotPasswordInput,
   ResetPasswordInput,
@@ -146,6 +148,52 @@ export const getMe = async (req: Request, res: Response, next: NextFunction): Pr
   try {
     const user = await authService.getMe(req.user!.userId);
     sendSuccess(res, user, 'Profile fetched');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const walletChallenge = async (
+  req: Request<object, object, WalletChallengeInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const challenge = await authService.createWalletChallenge(
+      req.user!.userId,
+      req.body.walletAddress
+    );
+    sendSuccess(res, challenge, 'Wallet challenge created');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const linkWallet = async (
+  req: Request<object, object, WalletLinkInput>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await authService.linkWallet(
+      req.user!.userId,
+      req.body.walletAddress,
+      req.body.signature
+    );
+    sendSuccess(res, user, 'Wallet linked');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const unlinkWallet = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const user = await authService.unlinkWallet(req.user!.userId);
+    sendSuccess(res, user, 'Wallet unlinked');
   } catch (error) {
     next(error);
   }
