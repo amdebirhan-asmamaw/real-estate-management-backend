@@ -64,9 +64,10 @@ JWT with **access** + **refresh** tokens. The API is stateless today (tokens are
 2. **Login** → `POST /auth/login` → returns `{ user, tokens }`.
 3. Send the access token on protected calls: `Authorization: Bearer <accessToken>`.
 4. When a call returns `401`, call `POST /auth/refresh-token` with the refresh token to get a new pair, then retry.
-5. `GET /auth/me` returns the current profile.
+5. `GET /auth/me` returns the current profile; `PATCH /auth/me` updates `name` and `walletAddress`.
+6. Use `POST /auth/logout` to revoke one refresh token, or `POST /auth/logout-all` to revoke every active session.
 
-> Storage: keep the access token in memory and the refresh token in a secure, httpOnly-style store where possible. (A server-side session store with rotation/logout is on the roadmap; until then treat refresh tokens carefully.)
+> Storage: keep the access token in memory and the refresh token in a secure, httpOnly-style store where possible. Refresh tokens are stored server-side as hashes and rotate on every refresh; reusing an old rotated token revokes the session family.
 
 ### Register
 
@@ -82,6 +83,40 @@ await fetch("/api/v1/auth/register", {
   }),
 });
 ```
+
+### Update profile
+
+```ts
+await api("/auth/me", {
+  method: "PATCH",
+  body: JSON.stringify({
+    name: "Ada Lovelace",
+    walletAddress: "0x1111111111111111111111111111111111111111",
+  }),
+});
+```
+
+Send `walletAddress: ""` to unlink the wallet.
+
+### Password reset
+
+The forgot-password endpoint always returns success so the UI must not infer whether an account exists.
+
+```ts
+await fetch("/api/v1/auth/forgot-password", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email: "ada@example.com" }),
+});
+
+await fetch("/api/v1/auth/reset-password", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ token, newPassword: "NewPass123" }),
+});
+```
+
+After reset or change-password, clear local tokens and send the user back to sign in.
 
 ### Authenticated fetch helper
 

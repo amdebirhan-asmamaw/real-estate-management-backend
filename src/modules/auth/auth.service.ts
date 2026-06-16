@@ -3,8 +3,11 @@ import { StatusCodes } from 'http-status-codes';
 import { getAddress, verifyMessage } from 'ethers';
 import { User, IUser, canAuthenticate } from './auth.model';
 import { RefreshSession, IRefreshSession } from './session.model';
+import { PasswordResetToken } from './passwordResetToken.model';
 import { AppError } from '../../core/utils/AppError';
 import { sha256 } from '../../core/utils/hash';
+import { sendPasswordResetEmail } from '../../core/utils/mailer';
+import { env } from '../../core/config/env';
 import {
   signAccessToken,
   signRefreshToken,
@@ -19,6 +22,8 @@ import type {
   LoginInput,
   RefreshTokenInput,
   UpdateProfileInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
 } from './auth.validation';
 import type { JwtPayload } from '../../core/middleware/auth.middleware';
 
@@ -37,9 +42,9 @@ interface PublicUser {
   accountStatus: string;
   kycStatus: string;
   emailVerified: boolean;
-  mustResetPassword: boolean;
   walletAddress?: string;
   walletStatus: string;
+  mustResetPassword: boolean;
 }
 
 interface AuthResult {
@@ -69,6 +74,11 @@ const normalizeWalletAddress = (walletAddress: string): string => {
   }
 };
 
+const buildResetUrl = (token: string): string => {
+  const base = env.APP_BASE_URL.replace(/\/$/, '');
+  return `${base}/reset-password?token=${encodeURIComponent(token)}`;
+};
+
 const toPublicUser = (user: IUser): PublicUser => ({
   id: user.id as string,
   name: user.name,
@@ -79,9 +89,9 @@ const toPublicUser = (user: IUser): PublicUser => ({
   accountStatus: user.accountStatus,
   kycStatus: user.kycStatus,
   emailVerified: user.emailVerified,
-  mustResetPassword: user.mustResetPassword,
   walletAddress: user.walletAddress,
   walletStatus: user.walletStatus,
+  mustResetPassword: user.mustResetPassword,
 });
 
 const blockedMessage = (status: string): string => {
@@ -184,7 +194,6 @@ export const login = async (
 
   const isMatch = await user.comparePassword(input.password);
   if (!isMatch) {
-    // Track failed login attempts
     user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
     user.lastFailedLoginAt = new Date();
     await user.save();
@@ -201,7 +210,6 @@ export const login = async (
     throw new AppError('Invalid email or password', StatusCodes.UNAUTHORIZED);
   }
 
-  // Reset failed login counter on success
   if (user.failedLoginAttempts > 0) {
     user.failedLoginAttempts = 0;
     user.lastFailedLoginAt = undefined;
@@ -245,7 +253,6 @@ export const refreshTokens = async (
     throw new AppError('Session not found', StatusCodes.UNAUTHORIZED);
   }
   if (session.revokedAt) {
-    // Reuse of a rotated token — revoke every live token in the family.
     await RefreshSession.updateMany(
       { family: session.family, revokedAt: { $exists: false } },
       { revokedAt: new Date() },
@@ -261,7 +268,6 @@ export const refreshTokens = async (
     throw new AppError('User not found or not allowed to sign in', StatusCodes.UNAUTHORIZED);
   }
 
-  // Rotate: revoke the presented session, issue a new one in the same family.
   session.revokedAt = new Date();
   await session.save();
 
@@ -333,24 +339,97 @@ export const changePassword = async (
   if (!ok) {
     throw new AppError('Current password is incorrect', StatusCodes.UNAUTHORIZED);
   }
-  user.password = newPassword; // hashed by the pre-save hook
+  const samePassword = await user.comparePassword(newPassword);
+  if (samePassword) {
+    throw new AppError('New password must differ from current password', StatusCodes.BAD_REQUEST);
+  }
+  user.password = newPassword;
   user.mustResetPassword = false;
   await user.save();
   await logoutAll(userId);
+};
+
+export const requestPasswordReset = async (
+  input: ForgotPasswordInput,
+): Promise<void> => {
+  const user = await User.findOne({ email: input.email });
+  if (!user || !canAuthenticate(user.accountStatus)) {
+    return;
+  }
+
+  await PasswordResetToken.updateMany(
+    { user: user._id, usedAt: { $exists: false } },
+    { usedAt: new Date() },
+  );
+
+  const rawToken = randomBytes(32).toString('hex');
+  const expiresAt = new Date(
+    Date.now() + env.PASSWORD_RESET_EXPIRES_MINUTES * 60 * 1000,
+  );
+
+  await PasswordResetToken.create({
+    user: user._id,
+    tokenHash: hashToken(rawToken),
+    expiresAt,
+  });
+
+  await sendPasswordResetEmail(
+    user.email,
+    buildResetUrl(rawToken),
+    env.PASSWORD_RESET_EXPIRES_MINUTES,
+  );
 
   await audit.record({
-    actor: userId,
+    actor: user.id as string,
     actorRole: user.role,
-    action: 'user.password_changed',
+    action: 'user.password_reset_requested',
     targetType: 'user',
-    targetId: userId,
+    targetId: user.id as string,
+  });
+};
+
+export const resetPassword = async (
+  input: ResetPasswordInput,
+): Promise<void> => {
+  const token = await PasswordResetToken.findOne({
+    tokenHash: hashToken(input.token),
+    usedAt: { $exists: false },
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (!token) {
+    throw new AppError('Invalid or expired password reset token', StatusCodes.UNAUTHORIZED);
+  }
+
+  const user = await User.findById(token.user).select('+password');
+  if (!user || !canAuthenticate(user.accountStatus)) {
+    throw new AppError('Invalid or expired password reset token', StatusCodes.UNAUTHORIZED);
+  }
+
+  const samePassword = await user.comparePassword(input.newPassword);
+  if (samePassword) {
+    throw new AppError('New password must differ from current password', StatusCodes.BAD_REQUEST);
+  }
+
+  user.password = input.newPassword;
+  user.mustResetPassword = false;
+  token.usedAt = new Date();
+  await Promise.all([user.save(), token.save()]);
+  await logoutAll(user.id as string);
+
+  await audit.record({
+    actor: user.id as string,
+    actorRole: user.role,
+    action: 'user.password_reset',
+    targetType: 'user',
+    targetId: user.id as string,
   });
 
   await notifications.notify({
-    recipient: userId,
+    recipient: user.id as string,
     type: 'auth.password_changed',
-    title: 'Password changed',
-    message: 'Your password has been changed. If you did not do this, contact support immediately.',
+    title: 'Password reset complete',
+    message: 'Your password has been reset. If you did not do this, contact support immediately.',
   });
 };
 
@@ -359,6 +438,32 @@ export const getMe = async (userId: string): Promise<PublicUser> => {
   if (!user) {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
   }
+  return toPublicUser(user);
+};
+
+export const updateProfile = async (
+  userId: string,
+  input: UpdateProfileInput,
+): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  if (input.name !== undefined) user.name = input.name;
+  if (input.phone !== undefined) user.phone = input.phone || undefined;
+  if (input.profileImage !== undefined) user.profileImage = input.profileImage || undefined;
+  await user.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: user.role,
+    action: 'user.profile_updated',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { fields: Object.keys(input) },
+  });
+
   return toPublicUser(user);
 };
 
@@ -475,7 +580,7 @@ export const linkWallet = async (
 
   await notifications.notify({
     recipient: userId,
-    type: 'auth.registration', // reuse closest type — wallet linked
+    type: 'auth.registration',
     title: 'Wallet linked',
     message: `Your wallet (${normalized.slice(0, 6)}…${normalized.slice(-4)}) has been linked to your account.`,
     metadata: { walletAddress: normalized },
@@ -490,7 +595,6 @@ export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
     throw new AppError('User not found', StatusCodes.NOT_FOUND);
   }
 
-  // Guard: prevent unlinking while user is party to active/funded leases.
   const activeLease = await Lease.findOne({
     $or: [{ landlord: userId }, { tenant: userId }],
     status: { $in: ['proposed', 'active', 'disputed'] },
@@ -517,104 +621,4 @@ export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
   });
 
   return toPublicUser(user);
-};
-
-// ─── Profile Update ────────────────────────────────────────────────────────────
-
-export const updateProfile = async (
-  userId: string,
-  input: UpdateProfileInput,
-): Promise<PublicUser> => {
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new AppError('User not found', StatusCodes.NOT_FOUND);
-  }
-
-  if (input.name !== undefined) user.name = input.name;
-  if (input.phone !== undefined) user.phone = input.phone;
-  if (input.profileImage !== undefined) user.profileImage = input.profileImage;
-  await user.save();
-
-  await audit.record({
-    actor: userId,
-    actorRole: user.role,
-    action: 'user.profile_updated',
-    targetType: 'user',
-    targetId: userId,
-    metadata: { fields: Object.keys(input) },
-  });
-
-  return toPublicUser(user);
-};
-
-// ─── Forgot / Reset Password ───────────────────────────────────────────────────
-
-const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-/**
- * Generates a password reset token and stores its hash + expiry.
- * Returns the raw token (to be delivered to the user via email).
- * Always succeeds (does not reveal whether the email exists).
- */
-export const requestPasswordReset = async (
-  email: string,
-): Promise<string | null> => {
-  const user = await User.findOne({ email });
-  if (!user) return null; // Silent — don't reveal email existence
-
-  const rawToken = randomBytes(32).toString('hex');
-  user.passwordResetToken = sha256(Buffer.from(rawToken));
-  user.passwordResetExpires = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
-  await user.save();
-
-  await audit.record({
-    actor: user.id as string,
-    actorRole: user.role,
-    action: 'user.password_reset_requested',
-    targetType: 'user',
-    targetId: user.id as string,
-  });
-
-  return rawToken;
-};
-
-/**
- * Validates a password-reset token, updates the password, and revokes all
- * sessions. The token is single-use.
- */
-export const resetPassword = async (
-  rawToken: string,
-  newPassword: string,
-): Promise<void> => {
-  const tokenHash = sha256(Buffer.from(rawToken));
-  const user = await User.findOne({
-    passwordResetToken: tokenHash,
-    passwordResetExpires: { $gt: new Date() },
-  }).select('+password +passwordResetToken +passwordResetExpires');
-
-  if (!user) {
-    throw new AppError('Invalid or expired reset token', StatusCodes.BAD_REQUEST);
-  }
-
-  user.password = newPassword; // hashed by pre-save hook
-  user.passwordResetToken = undefined;
-  user.passwordResetExpires = undefined;
-  user.mustResetPassword = false;
-  await user.save();
-  await logoutAll(user.id as string);
-
-  await audit.record({
-    actor: user.id as string,
-    actorRole: user.role,
-    action: 'user.password_reset',
-    targetType: 'user',
-    targetId: user.id as string,
-  });
-
-  await notifications.notify({
-    recipient: user.id as string,
-    type: 'auth.password_changed',
-    title: 'Password reset complete',
-    message: 'Your password has been reset. If you did not do this, contact support immediately.',
-  });
 };

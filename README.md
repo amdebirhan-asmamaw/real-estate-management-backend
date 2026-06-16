@@ -82,9 +82,18 @@ Validated at startup in [`src/core/config/env.ts`](src/core/config/env.ts). The 
 | `BLOCKCHAIN_RPC_URL`     | no†      | —             | EVM RPC (e.g. local Hardhat node)                         |
 | `TITLE_CONTRACT_ADDRESS` | no†      | —             | Deployed PropertyTitle contract address                   |
 | `MINTER_PRIVATE_KEY`     | no†      | —             | Custodial minter wallet private key                       |
+| `APP_BASE_URL`           | no       | `http://localhost:3000` | Frontend URL used in password reset links          |
+| `MAIL_FROM`              | no       | `Swafri <no-reply@swafri.local>` | From address for auth emails           |
+| `SMTP_HOST`              | no‡      | —             | SMTP host for email delivery                              |
+| `SMTP_PORT`              | no       | `587`         | SMTP port                                                 |
+| `SMTP_SECURE`            | no       | `false`       | Use TLS for SMTP connection                               |
+| `SMTP_USER`              | no       | —             | SMTP username                                             |
+| `SMTP_PASS`              | no       | —             | SMTP password                                             |
+| `PASSWORD_RESET_EXPIRES_MINUTES` | no | `30`       | Password reset token lifetime                             |
 
 \* Optional to boot, but uploads fail fast with `503` until Cloudinary is configured.
 † Optional to boot; on-chain title minting/verification fails fast with `503` until configured. The `PropertyTitle` contract lives in the separate `real-estate-contracts` repo — see [docs/prd/increment-2-onchain-titles.md](docs/prd/increment-2-onchain-titles.md).
+‡ Optional outside production; when SMTP is missing locally, reset links are written to the dev logger instead of sent.
 
 ## Project Structure
 
@@ -122,10 +131,13 @@ Base URL: `/api/v1`
 | POST   | `/auth/login`         | —    | Log in, returns tokens                               |
 | POST   | `/auth/refresh-token` | —    | Exchange + rotate a refresh token                    |
 | POST   | `/auth/logout`        | —    | Revoke one refresh-token session                     |
+| POST   | `/auth/forgot-password` | —  | Send password reset instructions if the email exists |
+| POST   | `/auth/reset-password` | —   | Reset password with emailed token                    |
 | POST   | `/auth/logout-all`    | ✅   | Revoke all of the caller's sessions                  |
 | GET    | `/auth/sessions`      | ✅   | List the caller's active sessions                    |
 | POST   | `/auth/change-password` | ✅ | Change password (revokes all sessions)               |
 | GET    | `/auth/me`            | ✅   | Current user's profile                               |
+| PATCH  | `/auth/me`            | ✅   | Update profile fields (`name`, `walletAddress`)      |
 
 Refresh tokens are stored hashed and **rotate** on every refresh; reusing a rotated token revokes the whole session family. Keep access tokens short-lived (`JWT_EXPIRES_IN`, e.g. `15m`).
 
