@@ -9,6 +9,7 @@ export interface IInquiry extends Document {
   inquirer: Types.ObjectId;
   inquiryType: InquiryType;
   message: string;
+  contactInfo?: { phone?: string; email?: string };
   status: InquiryStatus;
   response?: string;
   respondedAt?: Date;
@@ -37,6 +38,10 @@ const inquirySchema = new Schema<IInquiry>(
       index: true,
     },
     message: { type: String, required: true, maxlength: 2000 },
+    contactInfo: {
+      phone: { type: String, maxlength: 20 },
+      email: { type: String, maxlength: 254 },
+    },
     inquiryType: {
       type: String,
       enum: ["rent", "buy", "general"],

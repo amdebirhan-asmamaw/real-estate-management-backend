@@ -88,6 +88,11 @@ export interface IListing extends Document {
   yearBuilt?: number;
   floorNumber?: number;
   parkingSpaces?: number;
+  totalFloors?: number;
+  maintenanceFee?: number;
+  serviceCharge?: number;
+  utilityDetails?: string;
+  neighborhoodInfo?: string;
   furnishingStatus?: FurnishingStatus;
   nearbyLandmarks?: string[];
   rentalTerms?: string;
@@ -211,6 +216,11 @@ const listingSchema = new Schema<IListing>(
       type: String,
       enum: ["furnished", "semi_furnished", "unfurnished"],
     },
+    totalFloors: { type: Number, min: 0 },
+    maintenanceFee: { type: Number, min: 0 },
+    serviceCharge: { type: Number, min: 0 },
+    utilityDetails: { type: String, maxlength: 2000 },
+    neighborhoodInfo: { type: String, maxlength: 2000 },
     nearbyLandmarks: { type: [String], default: [] },
     rentalTerms: { type: String, maxlength: 5000 },
     saleTerms: { type: String, maxlength: 5000 },

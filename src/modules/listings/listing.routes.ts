@@ -19,6 +19,7 @@ import {
   documentReviewSchema,
   photoReorderSchema,
   setCoverSchema,
+  titleActionSchema,
 } from "./listing.validation";
 
 export const listingRouter = Router();
@@ -71,3 +72,6 @@ listingRouter.get("/:id/duplicates", authenticate, admins, controller.duplicates
 // ─── On-chain title (Increment 2) ──────────────────────────────────────────────
 listingRouter.post("/:id/mint-title", authenticate, admins, controller.mintTitle);
 listingRouter.get("/:id/title", optionalAuthenticate, controller.title);
+listingRouter.post("/:id/title/dispute", authenticate, admins, validate(titleActionSchema), controller.disputeTitle);
+listingRouter.post("/:id/title/clear-dispute", authenticate, admins, validate(titleActionSchema), controller.clearTitleDispute);
+listingRouter.post("/:id/title/revoke", authenticate, admins, validate(titleActionSchema), controller.revokeTitle);

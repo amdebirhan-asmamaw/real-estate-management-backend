@@ -111,6 +111,39 @@ export const getTitle = async (tokenId: string): Promise<OnChainTitle> => {
   };
 };
 
+/** Marks an on-chain title as disputed (Active → Disputed). */
+export const disputeTitle = async (
+  tokenId: string,
+  reason: string,
+): Promise<{ txHash: string }> => {
+  const { contract } = getContract();
+  const tx = await contract.markDisputed(tokenId, reason);
+  const receipt = await tx.wait();
+  return { txHash: receipt.hash };
+};
+
+/** Clears a dispute on an on-chain title (Disputed → Active). */
+export const clearTitleDispute = async (
+  tokenId: string,
+  reason: string,
+): Promise<{ txHash: string }> => {
+  const { contract } = getContract();
+  const tx = await contract.clearDispute(tokenId, reason);
+  const receipt = await tx.wait();
+  return { txHash: receipt.hash };
+};
+
+/** Permanently revokes an on-chain title (Active|Disputed → Revoked). */
+export const revokeOnChainTitle = async (
+  tokenId: string,
+  reason: string,
+): Promise<{ txHash: string }> => {
+  const { contract } = getContract();
+  const tx = await contract.revokeTitle(tokenId, reason);
+  const receipt = await tx.wait();
+  return { txHash: receipt.hash };
+};
+
 // Test seam: reset the memoized contract between tests if needed.
 export const _resetCache = (): void => {
   cached = null;

@@ -45,6 +45,9 @@ export const AUDIT_ACTIONS = [
   "document.approved",
   "document.rejected",
   "listing.title_minted",
+  "listing.title_disputed",
+  "listing.title_dispute_cleared",
+  "listing.title_revoked",
   // Lease lifecycle
   "lease.created",
   "lease.proposed",

@@ -99,6 +99,11 @@ export const createListingSchema = Joi.object({
   yearBuilt: Joi.number().integer().min(1800).max(2100),
   floorNumber: Joi.number().integer().min(0),
   parkingSpaces: Joi.number().integer().min(0),
+  totalFloors: Joi.number().integer().min(0),
+  maintenanceFee: Joi.number().min(0),
+  serviceCharge: Joi.number().min(0),
+  utilityDetails: Joi.string().max(2000).allow(""),
+  neighborhoodInfo: Joi.string().max(2000).allow(""),
   furnishingStatus: Joi.string().valid("furnished", "semi_furnished", "unfurnished"),
   nearbyLandmarks: Joi.array().items(Joi.string().max(200)),
   rentalTerms: Joi.string().max(5000).allow(""),
@@ -165,6 +170,10 @@ export const setCoverSchema = Joi.object({
   publicId: Joi.string().required(),
 });
 
+export const titleActionSchema = Joi.object({
+  reason: Joi.string().max(2000).required(),
+});
+
 export const discoverySchema = Joi.object({
   // Text search
   q: Joi.string().max(200).allow(""),
@@ -190,6 +199,7 @@ export const discoverySchema = Joi.object({
   minArea: Joi.number().min(0),
   maxArea: Joi.number().min(0),
   verifiedOnly: Joi.boolean(),
+  availabilityStatus: Joi.string().valid("available", "under_offer", "rented", "sold"),
   amenities: Joi.alternatives().try(
     Joi.array().items(Joi.string()),
     Joi.string(), // single value from query string
@@ -240,6 +250,11 @@ export type CreateListingInput = {
   yearBuilt?: number;
   floorNumber?: number;
   parkingSpaces?: number;
+  totalFloors?: number;
+  maintenanceFee?: number;
+  serviceCharge?: number;
+  utilityDetails?: string;
+  neighborhoodInfo?: string;
   furnishingStatus?: "furnished" | "semi_furnished" | "unfurnished";
   nearbyLandmarks?: string[];
   rentalTerms?: string;
@@ -284,6 +299,7 @@ export type DiscoveryQuery = {
   minArea?: number;
   maxArea?: number;
   verifiedOnly?: boolean;
+  availabilityStatus?: "available" | "under_offer" | "rented" | "sold";
   amenities?: string | string[];
   sort?: "newest" | "oldest" | "price_asc" | "price_desc";
   page: number;

@@ -10,6 +10,9 @@ export const PROPERTY_TITLE_ABI = [
   "function listingIdOf(uint256 tokenId) view returns (string)",
   "function tokenIdOfListing(string listingId) view returns (uint256)",
   "function titleStatusOf(uint256 tokenId) view returns (uint8)",
+  "function markDisputed(uint256 tokenId, string reason)",
+  "function clearDispute(uint256 tokenId, string reason)",
+  "function revokeTitle(uint256 tokenId, string reason)",
   "event TitleMinted(uint256 indexed tokenId, address indexed to, string listingId, bytes32 documentHash)",
   "event TitleStatusChanged(uint256 indexed tokenId, uint8 indexed status, string reason)",
 ] as const;

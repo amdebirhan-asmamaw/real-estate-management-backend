@@ -402,6 +402,7 @@ export const discover = async (
   if (q.minBedrooms !== undefined) filter.bedrooms = { $gte: q.minBedrooms };
   if (q.minBathrooms !== undefined) filter.bathrooms = { $gte: q.minBathrooms };
   if (q.verifiedOnly) filter.verificationStatus = "verified";
+  if (q.availabilityStatus) filter.availabilityStatus = q.availabilityStatus;
 
   if (q.minPrice !== undefined || q.maxPrice !== undefined) {
     const range: Record<string, number> = {};
@@ -833,6 +834,136 @@ export const getTitleInfo = async (
     offChainHash: listing.ownershipDocumentHash,
     verified: onChain.documentHash === listing.ownershipDocumentHash,
   };
+};
+
+// ─── Title dispute / revoke (admin only) ─────────────────────────────────────
+
+const ensureHasMintedTitle = (listing: IListing): void => {
+  if (!listing.tokenId) {
+    throw new AppError(
+      "No title has been minted for this listing",
+      StatusCodes.CONFLICT,
+    );
+  }
+};
+
+/** Marks a minted title as disputed on-chain and suspends the listing. */
+export const disputeOnChainTitle = async (
+  id: string,
+  reason: string,
+  adminId: string,
+  role: string,
+): Promise<IListing> => {
+  if (!isAdmin(role)) {
+    throw new AppError("Only an administrator can dispute a title", StatusCodes.FORBIDDEN);
+  }
+  const listing = await findOr404(id);
+  ensureHasMintedTitle(listing);
+
+  const { txHash } = await chain.disputeTitle(listing.tokenId!, reason);
+
+  // Sync listing status → suspended if currently published.
+  if (listing.status === "published") {
+    listing.status = "suspended";
+  }
+  await listing.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role,
+    action: "listing.title_disputed",
+    targetId: listing.id,
+    metadata: { tokenId: listing.tokenId, txHash, reason },
+  });
+
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.review_update",
+    title: "Title disputed",
+    message: `The title for "${listing.title}" has been marked as disputed.`,
+    metadata: { listingId: listing.id, reason },
+  });
+
+  return listing;
+};
+
+/** Clears a dispute on a minted title and restores the listing to published. */
+export const clearOnChainTitleDispute = async (
+  id: string,
+  reason: string,
+  adminId: string,
+  role: string,
+): Promise<IListing> => {
+  if (!isAdmin(role)) {
+    throw new AppError("Only an administrator can clear a title dispute", StatusCodes.FORBIDDEN);
+  }
+  const listing = await findOr404(id);
+  ensureHasMintedTitle(listing);
+
+  const { txHash } = await chain.clearTitleDispute(listing.tokenId!, reason);
+
+  // Sync listing status → published if currently suspended due to dispute.
+  if (listing.status === "suspended") {
+    listing.status = "published";
+  }
+  await listing.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role,
+    action: "listing.title_dispute_cleared",
+    targetId: listing.id,
+    metadata: { tokenId: listing.tokenId, txHash, reason },
+  });
+
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.review_update",
+    title: "Title dispute cleared",
+    message: `The dispute on "${listing.title}" has been resolved.`,
+    metadata: { listingId: listing.id, reason },
+  });
+
+  return listing;
+};
+
+/** Permanently revokes a minted title on-chain and archives the listing. */
+export const revokeOnChainTitleForListing = async (
+  id: string,
+  reason: string,
+  adminId: string,
+  role: string,
+): Promise<IListing> => {
+  if (!isAdmin(role)) {
+    throw new AppError("Only an administrator can revoke a title", StatusCodes.FORBIDDEN);
+  }
+  const listing = await findOr404(id);
+  ensureHasMintedTitle(listing);
+
+  const { txHash } = await chain.revokeOnChainTitle(listing.tokenId!, reason);
+
+  // Revoked titles → archive the listing permanently.
+  listing.status = "archived";
+  listing.verificationStatus = "suspended";
+  await listing.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role,
+    action: "listing.title_revoked",
+    targetId: listing.id,
+    metadata: { tokenId: listing.tokenId, txHash, reason },
+  });
+
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.review_update",
+    title: "Title revoked",
+    message: `The title for "${listing.title}" has been permanently revoked.`,
+    metadata: { listingId: listing.id, reason },
+  });
+
+  return listing;
 };
 
 // ─── Photo management ───────────────────────────────────────────────────────────

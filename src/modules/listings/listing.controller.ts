@@ -263,6 +263,48 @@ export const title: Handler = async (req, res, next) => {
   }
 };
 
+export const disputeTitle: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.disputeOnChainTitle(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Title disputed");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clearTitleDispute: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.clearOnChainTitleDispute(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Title dispute cleared");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const revokeTitle: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.revokeOnChainTitleForListing(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Title revoked");
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const reorderPhotos: Handler = async (req, res, next) => {
   try {
     const listing = await service.reorderPhotos(

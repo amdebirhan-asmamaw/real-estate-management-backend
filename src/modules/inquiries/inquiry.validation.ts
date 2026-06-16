@@ -4,6 +4,10 @@ export const createInquirySchema = Joi.object({
   listingId: Joi.string().hex().length(24).required(),
   inquiryType: Joi.string().valid("rent", "buy", "general").default("general"),
   message: Joi.string().min(1).max(2000).required(),
+  contactInfo: Joi.object({
+    phone: Joi.string().max(20),
+    email: Joi.string().email().max(254),
+  }),
 });
 
 export const updateInquirySchema = Joi.object({
@@ -18,7 +22,12 @@ export const adminListInquiriesSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
-export type CreateInquiryInput = { listingId: string; inquiryType?: string; message: string };
+export type CreateInquiryInput = {
+  listingId: string;
+  inquiryType?: string;
+  message: string;
+  contactInfo?: { phone?: string; email?: string };
+};
 export type UpdateInquiryInput = {
   status?: "open" | "responded" | "in_discussion" | "closed" | "spam";
   response?: string;
