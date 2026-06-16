@@ -3,6 +3,7 @@ import { Inquiry, IInquiry } from "./inquiry.model";
 import { AppError } from "../../core/utils/AppError";
 import { isAdmin, getListingById } from "../listings/listing.service";
 import * as notifications from "../notifications/notification.service";
+import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 import type { CreateInquiryInput, UpdateInquiryInput, AdminListInquiriesQuery } from "./inquiry.validation";
 import type { FilterQuery } from "mongoose";
 
@@ -21,6 +22,14 @@ export const createInquiry = async (
     inquirer: inquirerId,
     inquiryType: input.inquiryType ?? "general",
     message: input.message,
+  });
+
+  await listingAnalytics.trackEvent({
+    listingId: listing.id,
+    ownerId: listing.createdBy.toString(),
+    actorId: inquirerId,
+    eventType: "inquiry",
+    metadata: { inquiryId: inquiry.id, inquiryType: inquiry.inquiryType },
   });
 
   await notifications.notify({

@@ -6,6 +6,7 @@ import { isAdmin } from "../listings/listing.service";
 import * as notifications from "../notifications/notification.service";
 import * as compliance from "../compliance/compliance.service";
 import * as purchaseTransactions from "../purchaseTransactions/purchaseTransaction.service";
+import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 import type { CreateOfferInput, RespondOfferInput } from "./offer.validation";
 
 const findOr404 = async (id: string): Promise<IOffer> => {
@@ -46,6 +47,14 @@ export const createOffer = async (
     title: "New purchase offer",
     message: `A buyer submitted an offer for "${listing.title}".`,
     metadata: { listingId: listing.id, offerId: offer.id },
+  });
+
+  await listingAnalytics.trackEvent({
+    listingId: listing.id,
+    ownerId: listing.createdBy.toString(),
+    actorId: buyerId,
+    eventType: "offer",
+    metadata: { offerId: offer.id, amount: offer.amount, currency: offer.currency },
   });
 
   await compliance.flagOfferIfHighRisk({

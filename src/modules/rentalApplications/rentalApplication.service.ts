@@ -6,6 +6,7 @@ import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
 import * as leases from "../leases/lease.service";
+import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 import type {
   AppointmentInput,
   CreateLeaseFromApplicationInput,
@@ -110,6 +111,13 @@ export const create = async (
       targetType: "rental_application",
       targetId: application.id,
       metadata: { listingId: listing.id },
+    });
+    await listingAnalytics.trackEvent({
+      listingId: listing.id,
+      ownerId: listing.createdBy.toString(),
+      actorId: userId,
+      eventType: "rental_application",
+      metadata: { applicationId: application.id },
     });
     await notifications.notify({
       recipient: listing.createdBy.toString(),

@@ -33,6 +33,7 @@ const admins = authorize("admin", "super_admin");
 listingRouter.get("/", validate(discoverySchema, "query"), controller.discover);
 listingRouter.get("/mine", authenticate, managers, controller.mine);
 listingRouter.get("/dashboard", authenticate, managers, controller.ownerDashboard);
+listingRouter.get("/:id/analytics", authenticate, managers, controller.analytics);
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 
 // ─── Listing lifecycle ──────────────────────────────────────────────────────────

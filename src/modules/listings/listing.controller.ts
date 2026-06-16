@@ -8,6 +8,7 @@ import {
 } from "../../core/utils/uploader";
 import { sha256 } from "../../core/utils/hash";
 import { sendSuccess, sendCreated } from "../../core/utils/response";
+import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 import type {
   CreateListingInput,
   DiscoveryQuery,
@@ -43,6 +44,14 @@ export const getOne: Handler = async (req, res, next) => {
       req.user?.userId ?? null,
       req.user?.role ?? null,
     );
+    if (listing.status === "published") {
+      await listingAnalytics.trackEvent({
+        listingId: listing.id,
+        ownerId: listing.createdBy.toString(),
+        actorId: req.user?.userId ?? null,
+        eventType: "view",
+      });
+    }
     sendSuccess(res, listing, "Listing fetched");
   } catch (error) {
     next(error);
@@ -335,8 +344,24 @@ export const setCover: Handler = async (req, res, next) => {
 
 export const ownerDashboard: Handler = async (req, res, next) => {
   try {
-    const stats = await service.ownerDashboard(req.user!.userId);
-    sendSuccess(res, stats, "Owner dashboard stats");
+    const [stats, analytics] = await Promise.all([
+      service.ownerDashboard(req.user!.userId),
+      listingAnalytics.getOwnerAnalytics(req.user!.userId),
+    ]);
+    sendSuccess(res, { ...stats, analytics }, "Owner dashboard stats");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const analytics: Handler = async (req, res, next) => {
+  try {
+    const stats = await listingAnalytics.getListingAnalytics(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, stats, "Listing analytics");
   } catch (error) {
     next(error);
   }

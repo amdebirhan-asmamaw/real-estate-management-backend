@@ -1,6 +1,7 @@
 import { Favorite, IFavorite } from "./favorite.model";
 import { IListing } from "../listings/listing.model";
 import { getListingById } from "../listings/listing.service";
+import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 
 /**
  * Saves a listing to the user's favorites. Idempotent — saving twice is a
@@ -12,13 +13,19 @@ export const addFavorite = async (
   role: string | null,
 ): Promise<IFavorite> => {
   // Throws 404 if the listing isn't visible to this user.
-  await getListingById(listingId, userId, role);
+  const listing = await getListingById(listingId, userId, role);
 
   const favorite = await Favorite.findOneAndUpdate(
     { user: userId, listing: listingId },
     { $setOnInsert: { user: userId, listing: listingId } },
     { upsert: true, new: true },
   );
+  await listingAnalytics.trackEvent({
+    listingId,
+    ownerId: listing.createdBy.toString(),
+    actorId: userId,
+    eventType: "favorite",
+  });
   return favorite;
 };
 
