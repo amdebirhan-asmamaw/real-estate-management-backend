@@ -5,6 +5,7 @@ import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as chain from "../../core/blockchain/propertyTitle.service";
 import * as chainTransactions from "../chainTransactions/chainTransaction.service";
+import * as notifications from "../notifications/notification.service";
 import type { AuditAction } from "../audit/audit.model";
 import type { FilterQuery } from "mongoose";
 import type {
@@ -280,6 +281,22 @@ export const transition = async (
       ...(input.reason && { reason: input.reason }),
     },
   });
+
+  if (rule.actor === "admin_only") {
+    await notifications.notify({
+      recipient: listing.createdBy.toString(),
+      type:
+        input.action === "publish"
+          ? "listing.published"
+          : "listing.review_update",
+      title:
+        input.action === "publish"
+          ? "Listing published"
+          : "Listing review updated",
+      message: `Your listing "${listing.title}" is now ${listing.status}.`,
+      metadata: { listingId: listing.id, action: input.action },
+    });
+  }
 
   return listing;
 };
@@ -577,6 +594,14 @@ export const reviewDocument = async (
     action: decision === "approve" ? "document.approved" : "document.rejected",
     targetId: listing.id,
     metadata: { docId, type: doc.type },
+  });
+
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.review_update",
+    title: "Ownership document reviewed",
+    message: `Your ${doc.type} document was ${doc.status}.`,
+    metadata: { listingId: listing.id, docId, decision },
   });
 
   return listing;

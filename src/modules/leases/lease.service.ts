@@ -9,6 +9,7 @@ import { sha256 } from "../../core/utils/hash";
 import * as audit from "../audit/audit.service";
 import * as escrow from "../../core/blockchain/leaseEscrow.service";
 import * as chainTransactions from "../chainTransactions/chainTransaction.service";
+import * as notifications from "../notifications/notification.service";
 import type { ChainTransactionOperation } from "../chainTransactions/chainTransaction.model";
 import type { CreateLeaseInput, DisputeResolveInput } from "./lease.validation";
 
@@ -77,6 +78,30 @@ const ensureState = (lease: ILease, allowed: LeaseStatus[]): void => {
   }
 };
 
+const notifyLeaseParties = async (
+  lease: ILease,
+  title: string,
+  message: string,
+  metadata: Record<string, unknown> = {},
+): Promise<void> => {
+  await Promise.all([
+    notifications.notify({
+      recipient: lease.landlord.toString(),
+      type: "lease.status_update",
+      title,
+      message,
+      metadata: { leaseId: lease.id, status: lease.status, ...metadata },
+    }),
+    notifications.notify({
+      recipient: lease.tenant.toString(),
+      type: "lease.status_update",
+      title,
+      message,
+      metadata: { leaseId: lease.id, status: lease.status, ...metadata },
+    }),
+  ]);
+};
+
 export const createLease = async (
   input: CreateLeaseInput,
   userId: string,
@@ -143,6 +168,11 @@ export const propose = async (
     actor: userId, actorRole: role, action: "lease.proposed",
     targetType: "lease", targetId: lease.id,
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease proposed",
+    "A lease has been proposed and is ready for escrow funding.",
+  );
   return lease;
 };
 
@@ -204,6 +234,12 @@ export const fund = async (
     targetType: "lease", targetId: lease.id,
     metadata: { escrowId: result.escrowId, txHash: result.txHash },
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease escrow funded",
+    "The lease escrow has been funded on-chain.",
+    { escrowId: result.escrowId, txHash: result.txHash },
+  );
   return lease;
 };
 
@@ -245,6 +281,12 @@ export const activate = async (
     actor: userId, actorRole: role, action: "lease.activated",
     targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease activated",
+    "The lease has been activated and first month rent was released.",
+    { txHash: tx.txHash },
+  );
   return lease;
 };
 
@@ -276,6 +318,12 @@ export const cancel = async (
     actor: userId, actorRole: role, action: "lease.cancelled",
     targetType: "lease", targetId: lease.id,
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease cancelled",
+    "The lease was cancelled.",
+    { txHash: lease.escrow.settleTxHash },
+  );
   return lease;
 };
 
@@ -303,6 +351,12 @@ export const complete = async (
     actor: userId, actorRole: role, action: "lease.completed",
     targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease completed",
+    "The lease was completed and the deposit was refunded.",
+    { txHash: tx.txHash },
+  );
   return lease;
 };
 
@@ -330,6 +384,12 @@ export const terminate = async (
     actor: userId, actorRole: role, action: "lease.terminated",
     targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease terminated",
+    "The lease was terminated and the deposit was released.",
+    { txHash: tx.txHash },
+  );
   return lease;
 };
 
@@ -347,6 +407,11 @@ export const dispute = async (
     actor: userId, actorRole: role, action: "lease.disputed",
     targetType: "lease", targetId: lease.id,
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease disputed",
+    "A dispute was opened for this lease.",
+  );
   return lease;
 };
 
@@ -410,6 +475,12 @@ export const resolveDispute = async (
     targetType: "lease", targetId: lease.id,
     metadata: { decision: input.decision, note: input.note, txHash: tx.txHash },
   });
+  await notifyLeaseParties(
+    lease,
+    "Lease dispute resolved",
+    "The lease dispute was resolved.",
+    { decision: input.decision, txHash: tx.txHash },
+  );
   return lease;
 };
 

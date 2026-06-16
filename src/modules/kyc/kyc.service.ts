@@ -3,6 +3,7 @@ import { User, IUser, KycDocumentType, AccountStatus } from "../auth/auth.model"
 import { AppError } from "../../core/utils/AppError";
 import { signedUrl } from "../../core/utils/uploader";
 import * as audit from "../audit/audit.service";
+import * as notifications from "../notifications/notification.service";
 
 const isAdminRole = (role: string | null): boolean =>
   role === "admin" || role === "super_admin";
@@ -153,6 +154,17 @@ export const reviewKyc = async (
     action: decision === "approve" ? "user.kyc_approved" : "user.kyc_rejected",
     targetType: "user",
     targetId: targetUserId,
+  });
+
+  await notifications.notify({
+    recipient: targetUserId,
+    type: decision === "approve" ? "kyc.approved" : "kyc.rejected",
+    title: decision === "approve" ? "KYC approved" : "KYC rejected",
+    message:
+      decision === "approve"
+        ? "Your account verification was approved."
+        : "Your account verification was rejected. Please review the note and resubmit.",
+    metadata: { note },
   });
 
   return summarize(user);
