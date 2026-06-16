@@ -1,7 +1,7 @@
 import { env } from "../config/env";
 
 // Hand-curated OpenAPI 3.0 description of the API. Served as interactive docs at
-// GET /api/docs and as raw JSON at GET /api/docs.json. Keep this in sync with the
+// GET /api/v1/docs and as raw JSON at GET /api/v1/docs.json. Keep this in sync with the
 // route definitions; it is the contract the frontend builds against.
 
 const bearer = [{ bearerAuth: [] }];
@@ -33,16 +33,23 @@ export const openapiSpec: Record<string, unknown> = {
     },
   ],
   tags: [
-    { name: "Auth", description: "Registration, login, tokens, profile" },
+    { name: "Auth", description: "Registration, login, tokens, profile, wallet" },
     { name: "KYC", description: "Identity verification (self-service)" },
     { name: "Listings", description: "Property listings & review workflow" },
     { name: "Discovery", description: "Public geospatial search" },
     { name: "Media", description: "Photos (public) & ownership documents (private)" },
-    { name: "Titles", description: "On-chain property titles" },
+    { name: "Titles", description: "On-chain property titles & dispute management" },
     { name: "Favorites", description: "Saved listings" },
     { name: "Inquiries", description: "Tenant → owner inquiries" },
-    { name: "Admin", description: "Admin-only review & user management" },
+    { name: "Offers", description: "Purchase offers from tenants to property owners" },
+    { name: "Notifications", description: "User notifications" },
+    { name: "Saved Searches", description: "Persisted discovery queries with optional alerts" },
     { name: "Leases", description: "Lease agreements & on-chain escrow" },
+    { name: "Rental Applications", description: "Tenant rental application workflow" },
+    { name: "Purchase Transactions", description: "Property purchase transaction lifecycle" },
+    { name: "Compliance", description: "Compliance cases, screenings & broker licenses" },
+    { name: "Chain Transactions", description: "Blockchain transaction audit trail" },
+    { name: "Admin", description: "Admin-only review & user management" },
     { name: "Health", description: "Liveness / readiness" },
   ],
   components: {
@@ -1589,3 +1596,7 @@ export const openapiSpec: Record<string, unknown> = {
     },
   },
 };
+
+// Merge additional endpoint docs from the extra paths module.
+import { extraPaths } from "./openapi.paths.extra";
+Object.assign(openapiSpec.paths as Record<string, unknown>, extraPaths);

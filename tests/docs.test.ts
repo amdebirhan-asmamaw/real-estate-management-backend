@@ -3,7 +3,7 @@ import app from "../src/app";
 
 describe("API docs", () => {
   it("serves the raw OpenAPI document", async () => {
-    const res = await request(app).get("/api/docs.json");
+    const res = await request(app).get("/api/v1/docs.json");
     expect(res.status).toBe(200);
     expect(res.body.openapi).toMatch(/^3\./);
     expect(res.body.info.title).toBeDefined();
@@ -14,7 +14,7 @@ describe("API docs", () => {
   });
 
   it("serves the Swagger UI html", async () => {
-    const res = await request(app).get("/api/docs/");
+    const res = await request(app).get("/api/v1/docs/");
     expect(res.status).toBe(200);
     expect(res.text).toContain("swagger-ui");
   });

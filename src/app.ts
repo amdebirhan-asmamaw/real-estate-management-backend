@@ -62,8 +62,8 @@ app.get("/health/ready", (_req, res) => {
 
 // ─── API Docs (Swagger UI) ──────────────────────────────────────────────────────
 // Mounted before the rate limiter so the docs assets aren't throttled.
-app.get("/api/docs.json", (_req, res) => res.json(openapiSpec));
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
+app.get("/api/v1/docs.json", (_req, res) => res.json(openapiSpec));
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use("/api", apiLimiter);
