@@ -143,6 +143,18 @@ describe("lease.service state machine", () => {
         ),
       ).rejects.toBeInstanceOf(AppError);
     });
+
+    it("rejects a non-published rent listing", async () => {
+      const draftListing = await makeListing(landlord.id, "rent");
+      await Listing.findByIdAndUpdate(draftListing.id, { status: "draft" });
+      await expect(
+        service.createLease(
+          makeLeaseInput(draftListing.id, tenant.id),
+          landlord.id,
+          "property_owner",
+        ),
+      ).rejects.toBeInstanceOf(AppError);
+    });
   });
 
   // ── propose ──────────────────────────────────────────────────────────────────
@@ -247,6 +259,19 @@ describe("lease.service state machine", () => {
         service.fund(draft.id, landlord.id, "property_owner"),
       ).rejects.toBeInstanceOf(AppError);
     });
+
+    it("rejects a second fund call (double-fund guard)", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id);
+      await expect(
+        service.fund(draft.id, admin.id, "admin"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
   });
 
   // ── activate ─────────────────────────────────────────────────────────────────
@@ -291,6 +316,20 @@ describe("lease.service state machine", () => {
       await advanceToFunded(draft.id, admin.id);
       await expect(
         service.activate(draft.id, landlord.id, "property_owner"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("rejects a second activate call (activate-twice guard)", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id);
+      await advanceToActive(draft.id, admin.id);
+      await expect(
+        service.activate(draft.id, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
     });
   });
@@ -361,6 +400,21 @@ describe("lease.service state machine", () => {
       await advanceToActive(draft.id, admin.id);
       await expect(
         service.terminate(draft.id, landlord.id, "property_owner"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("rejects terminate after lease is already completed", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.complete(draft.id, admin.id, "admin");
+      await expect(
+        service.terminate(draft.id, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
     });
   });
@@ -537,6 +591,17 @@ describe("lease.service state machine", () => {
           "property_owner",
         ),
       ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("allows dispute from proposed state", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      const disputed = await service.dispute(draft.id, tenant.id, "tenant");
+      expect(disputed.status).toBe("disputed");
     });
   });
 });

@@ -4,6 +4,7 @@ import { Lease, ILease, LeaseStatus } from "./lease.model";
 import { Listing } from "../listings/listing.model";
 import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
+import { env } from "../../core/config/env";
 import { sha256 } from "../../core/utils/hash";
 import * as audit from "../audit/audit.service";
 import * as escrow from "../../core/blockchain/leaseEscrow.service";
@@ -51,6 +52,9 @@ export const createLease = async (
   if (!listing) throw new AppError("Listing not found", StatusCodes.NOT_FOUND);
   if (listing.listingType !== "rent") {
     throw new AppError("Leases require a rent listing", StatusCodes.BAD_REQUEST);
+  }
+  if (listing.status !== "published") {
+    throw new AppError("Leases require a published listing", StatusCodes.BAD_REQUEST);
   }
   if (!isAdmin(actorRole) && listing.createdBy.toString() !== userId) {
     throw new AppError("Only the listing owner may create a lease", StatusCodes.FORBIDDEN);
@@ -108,6 +112,12 @@ export const propose = async (
   return lease;
 };
 
+// NOTE: each money-moving transition calls the chain BEFORE persisting the new
+// lease/escrow state. In this custodial design that's an accepted trade-off —
+// funds are never lost, only the record could lag if the DB write fails after a
+// mined tx. The DB escrow sub-state (none/funded/active/closed) guards against
+// re-issuing a transition (e.g. double-fund), and getEscrow() exposes the
+// on-chain truth for a future reconciliation job. See CLAUDE.md.
 export const fund = async (
   id: string, userId: string, role: string,
 ): Promise<ILease> => {
@@ -139,8 +149,8 @@ export const fund = async (
     termsHash: lease.termsHash,
   });
   lease.escrow.escrowId = result.escrowId;
-  lease.escrow.contractAddress = process.env.ESCROW_CONTRACT_ADDRESS;
-  lease.escrow.token = process.env.ESCROW_TOKEN_ADDRESS;
+  lease.escrow.contractAddress = env.ESCROW_CONTRACT_ADDRESS;
+  lease.escrow.token = env.ESCROW_TOKEN_ADDRESS;
   lease.escrow.state = "funded";
   lease.escrow.fundTxHash = result.txHash;
   lease.escrow.landlordWallet = landlord.walletAddress;

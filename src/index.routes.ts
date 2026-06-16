@@ -7,6 +7,7 @@ import { favoriteRouter } from "./modules/favorites/favorite.routes";
 import { inquiryRouter } from "./modules/inquiries/inquiry.routes";
 import { kycRouter } from "./modules/kyc/kyc.routes";
 import { userAdminRouter } from "./modules/kyc/kyc.admin.routes";
+import { leaseRouter } from "./modules/leases/lease.routes";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ router.use("/audit-logs", auditRouter);
 router.use("/favorites", favoriteRouter);
 router.use("/inquiries", inquiryRouter);
 router.use("/kyc", kycRouter);
+router.use("/leases", leaseRouter);
 
 // Register new module routers here:
 
