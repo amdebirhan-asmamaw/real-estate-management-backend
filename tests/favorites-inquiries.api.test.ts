@@ -25,6 +25,7 @@ const publishedListing = async (ownerToken: string): Promise<string> => {
       title: "City Loft",
       listingType: "rent",
       category: "residential",
+      propertyType: "apartment",
       monthlyRent: 1500,
       location: { type: "Point", coordinates: [13.4, 52.5] },
     });

@@ -13,6 +13,8 @@ export const NOTIFICATION_TYPES = [
   // Listings
   "listing.review_update",
   "listing.published",
+  "listing.rejected",
+  "listing.title_minted",
   // Inquiries
   "inquiry.received",
   "inquiry.responded",

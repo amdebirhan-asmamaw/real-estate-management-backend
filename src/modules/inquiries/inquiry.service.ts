@@ -3,7 +3,8 @@ import { Inquiry, IInquiry } from "./inquiry.model";
 import { AppError } from "../../core/utils/AppError";
 import { isAdmin, getListingById } from "../listings/listing.service";
 import * as notifications from "../notifications/notification.service";
-import type { CreateInquiryInput, UpdateInquiryInput } from "./inquiry.validation";
+import type { CreateInquiryInput, UpdateInquiryInput, AdminListInquiriesQuery } from "./inquiry.validation";
+import type { FilterQuery } from "mongoose";
 
 /** A prospective tenant sends an inquiry about a (published) listing. */
 export const createInquiry = async (
@@ -18,6 +19,7 @@ export const createInquiry = async (
     listing: listing.id,
     listingOwner: listing.createdBy,
     inquirer: inquirerId,
+    inquiryType: input.inquiryType ?? "general",
     message: input.message,
   });
 
@@ -84,4 +86,24 @@ export const updateInquiry = async (
   }
 
   return inquiry;
+};
+
+/** Admin: list all inquiries with filters. */
+export const adminList = async (
+  query: AdminListInquiriesQuery,
+): Promise<{ items: IInquiry[]; total: number; page: number; limit: number }> => {
+  const filter: FilterQuery<IInquiry> = {};
+  if (query.status) filter.status = query.status;
+  if (query.listingId) filter.listing = query.listingId;
+  const skip = (query.page - 1) * query.limit;
+  const [items, total] = await Promise.all([
+    Inquiry.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(query.limit)
+      .populate("listing", "title status")
+      .populate("inquirer", "name email"),
+    Inquiry.countDocuments(filter),
+  ]);
+  return { items, total, page: query.page, limit: query.limit };
 };

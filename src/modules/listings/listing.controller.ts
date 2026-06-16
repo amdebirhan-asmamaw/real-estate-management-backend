@@ -262,3 +262,49 @@ export const title: Handler = async (req, res, next) => {
     next(error);
   }
 };
+
+export const reorderPhotos: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.reorderPhotos(
+      req.params.id,
+      (req.body as { order: string[] }).order,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Photos reordered");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setCover: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.setCoverPhoto(
+      req.params.id,
+      (req.body as { publicId: string }).publicId,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Cover photo set");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const ownerDashboard: Handler = async (req, res, next) => {
+  try {
+    const stats = await service.ownerDashboard(req.user!.userId);
+    sendSuccess(res, stats, "Owner dashboard stats");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const adminStats: Handler = async (_req, res, next) => {
+  try {
+    const stats = await service.adminDashboardStats();
+    sendSuccess(res, stats, "Admin listing stats");
+  } catch (error) {
+    next(error);
+  }
+};

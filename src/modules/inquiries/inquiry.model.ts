@@ -1,11 +1,13 @@
 import { Schema, model, Document, Types } from "mongoose";
 
-export type InquiryStatus = "open" | "responded" | "closed";
+export type InquiryType = "rent" | "buy" | "general";
+export type InquiryStatus = "open" | "responded" | "in_discussion" | "closed" | "spam";
 
 export interface IInquiry extends Document {
   listing: Types.ObjectId;
   listingOwner: Types.ObjectId; // denormalized from the listing for fast lookups
   inquirer: Types.ObjectId;
+  inquiryType: InquiryType;
   message: string;
   status: InquiryStatus;
   response?: string;
@@ -35,9 +37,14 @@ const inquirySchema = new Schema<IInquiry>(
       index: true,
     },
     message: { type: String, required: true, maxlength: 2000 },
+    inquiryType: {
+      type: String,
+      enum: ["rent", "buy", "general"],
+      default: "general",
+    },
     status: {
       type: String,
-      enum: ["open", "responded", "closed"],
+      enum: ["open", "responded", "in_discussion", "closed", "spam"],
       default: "open",
     },
     response: { type: String, maxlength: 2000 },

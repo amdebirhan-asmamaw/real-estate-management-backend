@@ -1,5 +1,10 @@
 import Joi from "joi";
 
+const PROPERTY_TYPES = [
+  "apartment", "house", "villa", "condominium", "land",
+  "commercial_space", "office", "warehouse", "shop", "mixed_use",
+] as const;
+
 const REJECTION_CODES = [
   "missing_document",
   "invalid_ownership_proof",
@@ -19,6 +24,10 @@ const TRANSITION_ACTIONS = [
   "publish",
   "suspend",
   "unsuspend",
+  "mark_rented",
+  "mark_sold",
+  "unmark_rented",
+  "unmark_sold",
   "archive",
 ] as const;
 
@@ -65,6 +74,7 @@ export const createListingSchema = Joi.object({
   description: Joi.string().max(5000).allow(""),
   listingType: Joi.string().valid("sale", "rent").required(),
   category: Joi.string().valid("residential", "commercial").required(),
+  propertyType: Joi.string().valid(...PROPERTY_TYPES).required(),
   price: Joi.number()
     .min(0)
     .when("listingType", {
@@ -86,6 +96,14 @@ export const createListingSchema = Joi.object({
     value: Joi.number().min(0).required(),
     unit: Joi.string().valid("sqm", "sqft").default("sqm"),
   }),
+  yearBuilt: Joi.number().integer().min(1800).max(2100),
+  floorNumber: Joi.number().integer().min(0),
+  parkingSpaces: Joi.number().integer().min(0),
+  furnishingStatus: Joi.string().valid("furnished", "semi_furnished", "unfurnished"),
+  nearbyLandmarks: Joi.array().items(Joi.string().max(200)),
+  rentalTerms: Joi.string().max(5000).allow(""),
+  saleTerms: Joi.string().max(5000).allow(""),
+  legalNotes: Joi.string().max(5000).allow(""),
   address: Joi.object({
     street: Joi.string().allow(""),
     city: Joi.string().allow(""),
@@ -99,7 +117,7 @@ export const createListingSchema = Joi.object({
 
 // PATCH: all fields optional; type-specific and location rules still apply if present.
 export const updateListingSchema = createListingSchema
-  .fork(["title", "listingType", "category", "location"], (s) => s.optional())
+  .fork(["title", "listingType", "category", "propertyType", "location"], (s) => s.optional())
   .min(1);
 
 export const transitionSchema = Joi.object({
@@ -127,6 +145,8 @@ export const documentUploadSchema = Joi.object({
       "tax_record",
       "utility_bill",
       "ownership_certificate",
+      "lease_authority",
+      "government_document",
       "other",
     )
     .default("other"),
@@ -137,7 +157,17 @@ export const documentReviewSchema = Joi.object({
   note: Joi.string().max(2000),
 });
 
+export const photoReorderSchema = Joi.object({
+  order: Joi.array().items(Joi.string().required()).min(1).required(),
+});
+
+export const setCoverSchema = Joi.object({
+  publicId: Joi.string().required(),
+});
+
 export const discoverySchema = Joi.object({
+  // Text search
+  q: Joi.string().max(200).allow(""),
   // Viewport (bounding box) — all four together.
   swLng: Joi.number().min(-180).max(180),
   swLat: Joi.number().min(-90).max(90),
@@ -152,10 +182,20 @@ export const discoverySchema = Joi.object({
   // Filters
   listingType: Joi.string().valid("sale", "rent"),
   category: Joi.string().valid("residential", "commercial"),
+  propertyType: Joi.string().valid(...PROPERTY_TYPES),
   minPrice: Joi.number().min(0),
   maxPrice: Joi.number().min(0),
   minBedrooms: Joi.number().min(0),
   minBathrooms: Joi.number().min(0),
+  minArea: Joi.number().min(0),
+  maxArea: Joi.number().min(0),
+  verifiedOnly: Joi.boolean(),
+  amenities: Joi.alternatives().try(
+    Joi.array().items(Joi.string()),
+    Joi.string(), // single value from query string
+  ),
+  // Sorting
+  sort: Joi.string().valid("newest", "oldest", "price_asc", "price_desc"),
   // Pagination
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
@@ -173,8 +213,14 @@ export const adminListSchema = Joi.object({
     "rejected",
     "published",
     "suspended",
+    "rented",
+    "sold",
     "archived",
   ),
+  verificationStatus: Joi.string().valid(
+    "unverified", "pending", "requires_more_info", "verified", "rejected", "suspended",
+  ),
+  propertyType: Joi.string().valid(...PROPERTY_TYPES),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
@@ -184,12 +230,21 @@ export type CreateListingInput = {
   description?: string;
   listingType: "sale" | "rent";
   category: "residential" | "commercial";
+  propertyType: string;
   price?: number;
   monthlyRent?: number;
   currency: string;
   bedrooms?: number;
   bathrooms?: number;
   area?: { value: number; unit: "sqm" | "sqft" };
+  yearBuilt?: number;
+  floorNumber?: number;
+  parkingSpaces?: number;
+  furnishingStatus?: "furnished" | "semi_furnished" | "unfurnished";
+  nearbyLandmarks?: string[];
+  rentalTerms?: string;
+  saleTerms?: string;
+  legalNotes?: string;
   address?: Record<string, string>;
   location: { type: "Point"; coordinates: [number, number] };
   amenities?: string[];
@@ -210,6 +265,7 @@ export type DocumentReviewInput = {
 };
 
 export type DiscoveryQuery = {
+  q?: string;
   swLng?: number;
   swLat?: number;
   neLng?: number;
@@ -220,16 +276,24 @@ export type DiscoveryQuery = {
   polygon?: [number, number][];
   listingType?: "sale" | "rent";
   category?: "residential" | "commercial";
+  propertyType?: string;
   minPrice?: number;
   maxPrice?: number;
   minBedrooms?: number;
   minBathrooms?: number;
+  minArea?: number;
+  maxArea?: number;
+  verifiedOnly?: boolean;
+  amenities?: string | string[];
+  sort?: "newest" | "oldest" | "price_asc" | "price_desc";
   page: number;
   limit: number;
 };
 
 export type AdminListQuery = {
   status?: string;
+  verificationStatus?: string;
+  propertyType?: string;
   page: number;
   limit: number;
 };

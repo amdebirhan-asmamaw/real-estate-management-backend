@@ -96,6 +96,14 @@ export const updateListing = async (
 
   listing.set(patch);
   await listing.save();
+
+  await audit.record({
+    actor: userId!,
+    actorRole: role ?? "property_owner",
+    action: "listing.updated",
+    targetId: listing.id,
+  });
+
   return listing;
 };
 
@@ -106,6 +114,14 @@ export const deleteListing = async (
 ): Promise<void> => {
   const listing = await findOr404(id);
   ensureOwnerOrAdmin(listing, userId, role);
+
+  await audit.record({
+    actor: userId!,
+    actorRole: role ?? "property_owner",
+    action: "listing.deleted",
+    targetId: listing.id,
+  });
+
   await listing.deleteOne();
 };
 
@@ -125,6 +141,8 @@ const ALL_STATUSES: ListingStatus[] = [
   "rejected",
   "published",
   "suspended",
+  "rented",
+  "sold",
   "archived",
 ];
 
@@ -191,6 +209,30 @@ const TRANSITIONS: Record<TransitionInput["action"], TransitionRule> = {
     to: "archived",
     actor: "owner_or_admin",
     audit: "listing.archived",
+  },
+  mark_rented: {
+    from: ["published"],
+    to: "rented",
+    actor: "owner_or_admin",
+    audit: "listing.marked_rented",
+  },
+  mark_sold: {
+    from: ["published"],
+    to: "sold",
+    actor: "owner_or_admin",
+    audit: "listing.marked_sold",
+  },
+  unmark_rented: {
+    from: ["rented"],
+    to: "published",
+    actor: "owner_or_admin",
+    audit: "listing.unmarked_rented",
+  },
+  unmark_sold: {
+    from: ["sold"],
+    to: "published",
+    actor: "owner_or_admin",
+    audit: "listing.unmarked_sold",
   },
 };
 
@@ -274,6 +316,12 @@ export const transition = async (
     listing.review.reviewNote = input.note;
   }
 
+  // Sync availabilityStatus with terminal listing statuses.
+  if (input.action === "mark_rented") listing.availabilityStatus = "rented";
+  else if (input.action === "mark_sold") listing.availabilityStatus = "sold";
+  else if (input.action === "unmark_rented" || input.action === "unmark_sold")
+    listing.availabilityStatus = "available";
+
   await listing.save();
 
   await audit.record({
@@ -289,16 +337,21 @@ export const transition = async (
   });
 
   if (rule.actor === "admin_only") {
+    const notifType =
+      input.action === "publish"
+        ? "listing.published"
+        : input.action === "reject"
+          ? "listing.rejected"
+          : "listing.review_update";
     await notifications.notify({
       recipient: listing.createdBy.toString(),
-      type:
-        input.action === "publish"
-          ? "listing.published"
-          : "listing.review_update",
+      type: notifType,
       title:
         input.action === "publish"
           ? "Listing published"
-          : "Listing review updated",
+          : input.action === "reject"
+            ? "Listing rejected"
+            : "Listing review updated",
       message: `Your listing "${listing.title}" is now ${listing.status}.`,
       metadata: { listingId: listing.id, action: input.action },
     });
@@ -314,8 +367,12 @@ export const discover = async (
 ): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
   const filter: FilterQuery<IListing> = { status: "published" };
 
+  // Full-text search on title + description.
+  if (q.q) {
+    filter.$text = { $search: q.q };
+  }
+
   if (q.swLng !== undefined) {
-    // Viewport bounding box.
     filter.location = {
       $geoWithin: {
         $box: [
@@ -325,14 +382,12 @@ export const discover = async (
       },
     };
   } else if (q.polygon !== undefined) {
-    // Custom drawn boundary.
     filter.location = {
       $geoWithin: {
         $polygon: q.polygon,
       },
     };
   } else if (q.lng !== undefined) {
-    // Radius from a point (meters).
     filter.location = {
       $near: {
         $geometry: { type: "Point", coordinates: [q.lng, q.lat] },
@@ -343,8 +398,10 @@ export const discover = async (
 
   if (q.listingType) filter.listingType = q.listingType;
   if (q.category) filter.category = q.category;
+  if (q.propertyType) filter.propertyType = q.propertyType;
   if (q.minBedrooms !== undefined) filter.bedrooms = { $gte: q.minBedrooms };
   if (q.minBathrooms !== undefined) filter.bathrooms = { $gte: q.minBathrooms };
+  if (q.verifiedOnly) filter.verificationStatus = "verified";
 
   if (q.minPrice !== undefined || q.maxPrice !== undefined) {
     const range: Record<string, number> = {};
@@ -353,14 +410,35 @@ export const discover = async (
     filter.$or = [{ price: range }, { monthlyRent: range }];
   }
 
+  if (q.minArea !== undefined || q.maxArea !== undefined) {
+    const areaRange: Record<string, number> = {};
+    if (q.minArea !== undefined) areaRange.$gte = q.minArea;
+    if (q.maxArea !== undefined) areaRange.$lte = q.maxArea;
+    filter["area.value"] = areaRange;
+  }
+
+  // Amenities filter: listing must contain ALL requested amenities.
+  if (q.amenities) {
+    const arr = Array.isArray(q.amenities) ? q.amenities : [q.amenities];
+    if (arr.length > 0) filter.amenities = { $all: arr };
+  }
+
+  // Sort mapping
+  const sortMap: Record<string, Record<string, 1 | -1>> = {
+    newest: { createdAt: -1 },
+    oldest: { createdAt: 1 },
+    price_asc: { price: 1, monthlyRent: 1 },
+    price_desc: { price: -1, monthlyRent: -1 },
+  };
+  const sortOption = sortMap[q.sort ?? "newest"] ?? { createdAt: -1 };
+
   const skip = (q.page - 1) * q.limit;
 
   // countDocuments rejects $near, so radius counts strip the geo clause.
+  const countFilter = q.lng !== undefined ? { ...filter, location: undefined } : filter;
   const [items, total] = await Promise.all([
-    Listing.find(filter).skip(skip).limit(q.limit),
-    Listing.countDocuments(
-      q.lng !== undefined ? { ...filter, location: undefined } : filter,
-    ),
+    Listing.find(filter).sort(sortOption).skip(skip).limit(q.limit),
+    Listing.countDocuments(countFilter),
   ]);
 
   return { items, total, page: q.page, limit: q.limit };
@@ -371,6 +449,8 @@ export const adminList = async (
 ): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
   const filter: FilterQuery<IListing> = {};
   if (q.status) filter.status = q.status;
+  if (q.verificationStatus) filter.verificationStatus = q.verificationStatus;
+  if (q.propertyType) filter.propertyType = q.propertyType;
   const skip = (q.page - 1) * q.limit;
   const [items, total] = await Promise.all([
     Listing.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(q.limit),
@@ -714,6 +794,15 @@ export const mintTitle = async (
     metadata: { tokenId: result.tokenId, txHash: result.txHash },
   });
 
+  // Notify property owner that their title certificate has been minted.
+  await notifications.notify({
+    recipient: listing.createdBy.toString(),
+    type: "listing.title_minted",
+    title: "Digital title certificate minted",
+    message: `A blockchain-backed title certificate has been issued for "${listing.title}".`,
+    metadata: { listingId: listing.id, tokenId: result.tokenId, txHash: result.txHash },
+  });
+
   return listing;
 };
 
@@ -744,4 +833,114 @@ export const getTitleInfo = async (
     offChainHash: listing.ownershipDocumentHash,
     verified: onChain.documentHash === listing.ownershipDocumentHash,
   };
+};
+
+// ─── Photo management ───────────────────────────────────────────────────────────
+
+/** Reorder photos by providing an ordered array of publicIds. */
+export const reorderPhotos = async (
+  id: string,
+  order: string[],
+  userId: string | null,
+  role: string | null,
+): Promise<IListing> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+
+  const photoMap = new Map(listing.photos.map((p) => [p.publicId, p]));
+  const reordered = order
+    .map((pid) => photoMap.get(pid))
+    .filter(Boolean) as IListing["photos"];
+
+  // Append any photos not in the order array at the end.
+  const remaining = listing.photos.filter((p) => !order.includes(p.publicId));
+  listing.photos = [...reordered, ...remaining] as IListing["photos"];
+  await listing.save();
+  return listing;
+};
+
+/** Set a specific photo as the cover image. */
+export const setCoverPhoto = async (
+  id: string,
+  publicId: string,
+  userId: string | null,
+  role: string | null,
+): Promise<IListing> => {
+  const listing = await findOr404(id);
+  ensureOwnerOrAdmin(listing, userId, role);
+
+  const exists = listing.photos.some((p) => p.publicId === publicId);
+  if (!exists) {
+    throw new AppError("Photo not found on this listing", StatusCodes.NOT_FOUND);
+  }
+
+  listing.photos.forEach((p) => {
+    p.isCover = p.publicId === publicId;
+  });
+  await listing.save();
+  return listing;
+};
+
+// ─── Dashboard stats ────────────────────────────────────────────────────────────
+
+import { Inquiry } from "../inquiries/inquiry.model";
+
+export interface OwnerDashboardStats {
+  total: number;
+  byStatus: Record<string, number>;
+  pendingInquiries: number;
+}
+
+/** Aggregated dashboard stats for a property owner. */
+export const ownerDashboard = async (userId: string): Promise<OwnerDashboardStats> => {
+  const [statusAgg, inquiryCount] = await Promise.all([
+    Listing.aggregate([
+      { $match: { createdBy: userId } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    Inquiry.countDocuments({ listingOwner: userId, status: "open" }),
+  ]);
+
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const s of statusAgg) {
+    byStatus[s._id as string] = s.count as number;
+    total += s.count as number;
+  }
+
+  return { total, byStatus, pendingInquiries: inquiryCount };
+};
+
+export interface AdminListingStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byVerification: Record<string, number>;
+  pendingReview: number;
+}
+
+/** Aggregated listing stats for admin dashboard. */
+export const adminDashboardStats = async (): Promise<AdminListingStats> => {
+  const [statusAgg, verificationAgg, pendingReview] = await Promise.all([
+    Listing.aggregate([
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    Listing.aggregate([
+      { $group: { _id: "$verificationStatus", count: { $sum: 1 } } },
+    ]),
+    Listing.countDocuments({ status: { $in: ["submitted", "under_review"] } }),
+  ]);
+
+  const byStatus: Record<string, number> = {};
+  let total = 0;
+  for (const s of statusAgg) {
+    byStatus[s._id as string] = s.count as number;
+    total += s.count as number;
+  }
+
+  const byVerification: Record<string, number> = {};
+  for (const v of verificationAgg) {
+    byVerification[v._id as string] = v.count as number;
+  }
+
+  return { total, byStatus, byVerification, pendingReview };
 };

@@ -50,6 +50,7 @@ const verifiedListing = async (ownerToken: string): Promise<string> => {
       title: "Verified Home",
       listingType: "sale",
       category: "residential",
+      propertyType: "apartment",
       price: 250000,
       location: { type: "Point", coordinates: [13.4, 52.5] },
     });

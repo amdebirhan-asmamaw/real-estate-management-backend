@@ -25,6 +25,7 @@ const makeUser = async (opts: { role?: string; walletAddress?: string } = {}) =>
     email: `user-${Math.random().toString(36).slice(2)}@test.com`,
     password: "Password1!",
     role: opts.role ?? "property_owner",
+    kycStatus: "verified",
     ...(opts.walletAddress ? { walletAddress: opts.walletAddress } : {}),
   });
 
@@ -36,6 +37,7 @@ const makeListing = async (
     title: "Test Listing",
     listingType,
     category: "residential",
+    propertyType: "apartment",
     currency: "USD",
     monthlyRent: 1000,
     status: "published",

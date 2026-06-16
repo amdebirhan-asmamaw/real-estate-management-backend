@@ -10,6 +10,7 @@ const make = (coords: [number, number], over: Record<string, unknown> = {}) =>
     title: "L",
     listingType: "rent",
     category: "residential",
+    propertyType: "apartment",
     monthlyRent: 1000,
     currency: "USD",
     status: "published",

@@ -17,6 +17,8 @@ import {
   discoverySchema,
   documentUploadSchema,
   documentReviewSchema,
+  photoReorderSchema,
+  setCoverSchema,
 } from "./listing.validation";
 
 export const listingRouter = Router();
@@ -29,6 +31,7 @@ const admins = authorize("admin", "super_admin");
 // ─── Public discovery + read ────────────────────────────────────────────────────
 listingRouter.get("/", validate(discoverySchema, "query"), controller.discover);
 listingRouter.get("/mine", authenticate, managers, controller.mine);
+listingRouter.get("/dashboard", authenticate, managers, controller.ownerDashboard);
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 
 // ─── Listing lifecycle ──────────────────────────────────────────────────────────
@@ -40,6 +43,8 @@ listingRouter.post("/:id/transition", authenticate, managers, validate(transitio
 // ─── Photos (public gallery) ──────────────────────────────────────────────────
 listingRouter.post("/:id/photos", authenticate, managers, uploadPhotosMw, controller.uploadPhotos);
 listingRouter.delete("/:id/photos", authenticate, managers, controller.removePhoto);
+listingRouter.patch("/:id/photos/reorder", authenticate, managers, validate(photoReorderSchema), controller.reorderPhotos);
+listingRouter.patch("/:id/photos/cover", authenticate, managers, validate(setCoverSchema), controller.setCover);
 
 // ─── Ownership documents (private) ──────────────────────────────────────────────
 listingRouter.post(

@@ -6,6 +6,7 @@ const base = {
   description: "Bright apartment",
   listingType: "rent" as const,
   category: "residential" as const,
+  propertyType: "apartment" as const,
   monthlyRent: 1200,
   bedrooms: 2,
   bathrooms: 1,

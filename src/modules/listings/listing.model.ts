@@ -2,6 +2,20 @@ import { Schema, model, Document, Types } from "mongoose";
 
 export type ListingType = "sale" | "rent";
 export type ListingCategory = "residential" | "commercial";
+export type PropertyType =
+  | "apartment"
+  | "house"
+  | "villa"
+  | "condominium"
+  | "land"
+  | "commercial_space"
+  | "office"
+  | "warehouse"
+  | "shop"
+  | "mixed_use";
+
+export type AvailabilityStatus = "available" | "under_offer" | "rented" | "sold";
+export type FurnishingStatus = "furnished" | "semi_furnished" | "unfurnished";
 
 export type ListingStatus =
   | "draft"
@@ -11,19 +25,25 @@ export type ListingStatus =
   | "rejected"
   | "published"
   | "suspended"
+  | "rented"
+  | "sold"
   | "archived";
 
 export type VerificationStatus =
   | "unverified"
   | "pending"
+  | "requires_more_info"
   | "verified"
-  | "rejected";
+  | "rejected"
+  | "suspended";
 
 export type DocumentType =
   | "title_deed"
   | "tax_record"
   | "utility_bill"
   | "ownership_certificate"
+  | "lease_authority"
+  | "government_document"
   | "other";
 export type DocumentStatus = "pending" | "approved" | "rejected";
 
@@ -39,6 +59,7 @@ export type RejectionCode =
 export interface IPhoto {
   url: string;
   publicId: string;
+  isCover?: boolean;
 }
 
 export interface IOwnershipDocument {
@@ -56,6 +77,7 @@ export interface IListing extends Document {
   description?: string;
   listingType: ListingType;
   category: ListingCategory;
+  propertyType: PropertyType;
   status: ListingStatus;
   price?: number;
   monthlyRent?: number;
@@ -63,6 +85,15 @@ export interface IListing extends Document {
   bedrooms?: number;
   bathrooms?: number;
   area?: { value: number; unit: "sqm" | "sqft" };
+  yearBuilt?: number;
+  floorNumber?: number;
+  parkingSpaces?: number;
+  furnishingStatus?: FurnishingStatus;
+  nearbyLandmarks?: string[];
+  rentalTerms?: string;
+  saleTerms?: string;
+  legalNotes?: string;
+  availabilityStatus: AvailabilityStatus;
   address: {
     street?: string;
     city?: string;
@@ -98,6 +129,7 @@ const photoSchema = new Schema<IPhoto>(
   {
     url: { type: String, required: true },
     publicId: { type: String, required: true },
+    isCover: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -110,6 +142,8 @@ const documentSchema = new Schema<IOwnershipDocument>({
       "tax_record",
       "utility_bill",
       "ownership_certificate",
+      "lease_authority",
+      "government_document",
       "other",
     ],
     required: true,
@@ -135,6 +169,15 @@ const listingSchema = new Schema<IListing>(
       enum: ["residential", "commercial"],
       required: true,
     },
+    propertyType: {
+      type: String,
+      enum: [
+        "apartment", "house", "villa", "condominium", "land",
+        "commercial_space", "office", "warehouse", "shop", "mixed_use",
+      ],
+      required: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: [
@@ -145,6 +188,8 @@ const listingSchema = new Schema<IListing>(
         "rejected",
         "published",
         "suspended",
+        "rented",
+        "sold",
         "archived",
       ],
       default: "draft",
@@ -158,6 +203,22 @@ const listingSchema = new Schema<IListing>(
     area: {
       value: { type: Number, min: 0 },
       unit: { type: String, enum: ["sqm", "sqft"], default: "sqm" },
+    },
+    yearBuilt: { type: Number, min: 1800, max: 2100 },
+    floorNumber: { type: Number, min: 0 },
+    parkingSpaces: { type: Number, min: 0 },
+    furnishingStatus: {
+      type: String,
+      enum: ["furnished", "semi_furnished", "unfurnished"],
+    },
+    nearbyLandmarks: { type: [String], default: [] },
+    rentalTerms: { type: String, maxlength: 5000 },
+    saleTerms: { type: String, maxlength: 5000 },
+    legalNotes: { type: String, maxlength: 5000 },
+    availabilityStatus: {
+      type: String,
+      enum: ["available", "under_offer", "rented", "sold"],
+      default: "available",
     },
     address: {
       street: String,
@@ -209,7 +270,7 @@ const listingSchema = new Schema<IListing>(
     },
     verificationStatus: {
       type: String,
-      enum: ["unverified", "pending", "verified", "rejected"],
+      enum: ["unverified", "pending", "requires_more_info", "verified", "rejected", "suspended"],
       default: "unverified",
     },
     verifiedBy: { type: Schema.Types.ObjectId, ref: "User" },
@@ -243,5 +304,6 @@ const listingSchema = new Schema<IListing>(
 );
 
 listingSchema.index({ location: "2dsphere" });
+listingSchema.index({ title: "text", description: "text" });
 
 export const Listing = model<IListing>("Listing", listingSchema);

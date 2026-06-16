@@ -11,6 +11,7 @@ const input: CreateListingInput = {
   title: "Flat",
   listingType: "rent",
   category: "residential",
+  propertyType: "apartment",
   monthlyRent: 1000,
   currency: "USD",
   location: { type: "Point", coordinates: [13.4, 52.5] },

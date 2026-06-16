@@ -18,6 +18,7 @@ beforeEach(async () => {
     password: "Password123",
     role: "property_owner",
     accountStatus: "active",
+    kycStatus: "verified",
   });
 });
 
@@ -25,6 +26,7 @@ const input: CreateListingInput = {
   title: "Flat",
   listingType: "rent",
   category: "residential",
+  propertyType: "apartment",
   monthlyRent: 1000,
   currency: "USD",
   location: { type: "Point", coordinates: [13.4, 52.5] },

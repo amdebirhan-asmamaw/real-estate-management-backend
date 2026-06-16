@@ -16,3 +16,11 @@ adminRouter.get(
   validate(adminListSchema, "query"),
   controller.adminList,
 );
+
+// Admin listing dashboard stats.
+adminRouter.get(
+  "/listings/stats",
+  authenticate,
+  admins,
+  controller.adminStats,
+);

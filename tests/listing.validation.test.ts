@@ -9,6 +9,7 @@ const valid = {
   title: "Flat",
   listingType: "rent",
   category: "residential",
+  propertyType: "apartment",
   monthlyRent: 1000,
   location: { type: "Point", coordinates: [13.4, 52.5] },
 };

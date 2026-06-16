@@ -22,6 +22,7 @@ const makeSaleListing = async (ownerToken: string): Promise<string> => {
       title: "Sale Condo",
       listingType: "sale",
       category: "residential",
+      propertyType: "condominium",
       price: 250000,
       location: { type: "Point", coordinates: [13.4, 52.5] },
     });
@@ -79,6 +80,7 @@ describe("Offers API", () => {
         title: "Rental",
         listingType: "rent",
         category: "residential",
+        propertyType: "apartment",
         monthlyRent: 1200,
         location: { type: "Point", coordinates: [13.4, 52.5] },
       });

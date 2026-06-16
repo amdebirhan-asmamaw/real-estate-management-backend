@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import * as service from "./inquiry.service";
 import { sendSuccess, sendCreated } from "../../core/utils/response";
-import type { CreateInquiryInput, UpdateInquiryInput } from "./inquiry.validation";
+import type { CreateInquiryInput, UpdateInquiryInput, AdminListInquiriesQuery } from "./inquiry.validation";
 
 export const create = async (
   req: Request,
@@ -59,6 +59,21 @@ export const update = async (
       req.body as UpdateInquiryInput,
     );
     sendSuccess(res, inquiry, "Inquiry updated");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const adminList = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const result = await service.adminList(
+      req.query as unknown as AdminListInquiriesQuery,
+    );
+    sendSuccess(res, result, "All inquiries");
   } catch (error) {
     next(error);
   }
