@@ -4,6 +4,7 @@ import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as chain from "../../core/blockchain/propertyTitle.service";
+import * as chainTransactions from "../chainTransactions/chainTransaction.service";
 import type { AuditAction } from "../audit/audit.model";
 import type { FilterQuery } from "mongoose";
 import type {
@@ -631,10 +632,29 @@ export const mintTitle = async (
     );
   }
 
-  const result = await chain.mintTitle({
-    listingId: listing.id,
-    documentHash: listing.ownershipDocumentHash,
+  const chainTx = await chainTransactions.begin({
+    operation: "title.mint",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id },
   });
+
+  let result: Awaited<ReturnType<typeof chain.mintTitle>>;
+  try {
+    result = await chain.mintTitle({
+      listingId: listing.id,
+      documentHash: listing.ownershipDocumentHash,
+    });
+    await chainTransactions.markMined(chainTx.id, {
+      txHash: result.txHash,
+      contractAddress: result.contractAddress,
+      metadata: { listingId: listing.id, tokenId: result.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   listing.tokenId = result.tokenId;
   listing.contractAddress = result.contractAddress;

@@ -13,6 +13,7 @@ import mongoose from "mongoose";
 import { User } from "../src/modules/auth/auth.model";
 import { Listing } from "../src/modules/listings/listing.model";
 import { Lease } from "../src/modules/leases/lease.model";
+import { ChainTransaction } from "../src/modules/chainTransactions/chainTransaction.model";
 import { AppError } from "../src/core/utils/AppError";
 import * as service from "../src/modules/leases/lease.service";
 
@@ -219,6 +220,14 @@ describe("lease.service state machine", () => {
       expect(funded.escrow.state).toBe("funded");
       expect(funded.escrow.escrowId).toBe("1");
       expect(funded.status).toBe("proposed");
+
+      const tx = await ChainTransaction.findOne({
+        targetType: "lease",
+        targetId: draft.id,
+        operation: "lease_escrow.open_and_fund",
+      });
+      expect(tx?.status).toBe("mined");
+      expect(tx?.txHash).toBe("0xfund");
     });
 
     it("throws when landlord has no walletAddress", async () => {

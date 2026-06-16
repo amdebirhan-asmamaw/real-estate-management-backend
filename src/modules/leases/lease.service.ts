@@ -8,6 +8,8 @@ import { env } from "../../core/config/env";
 import { sha256 } from "../../core/utils/hash";
 import * as audit from "../audit/audit.service";
 import * as escrow from "../../core/blockchain/leaseEscrow.service";
+import * as chainTransactions from "../chainTransactions/chainTransaction.service";
+import type { ChainTransactionOperation } from "../chainTransactions/chainTransaction.model";
 import type { CreateLeaseInput, DisputeResolveInput } from "./lease.validation";
 
 const ADMIN_ROLES = ["admin", "super_admin"];
@@ -17,6 +19,38 @@ const isAdmin = (role: string | null): boolean =>
 const TOKEN_DECIMALS = 18;
 const toBaseUnits = (amount: number): bigint =>
   parseUnits(amount.toString(), TOKEN_DECIMALS);
+
+const trackEscrowTx = async <T extends { txHash: string }>(
+  input: {
+    operation: ChainTransactionOperation;
+    leaseId: string;
+    actorId: string;
+    metadata?: Record<string, unknown>;
+  },
+  run: () => Promise<T>,
+): Promise<T> => {
+  const chainTx = await chainTransactions.begin({
+    operation: input.operation,
+    targetType: "lease",
+    targetId: input.leaseId,
+    createdBy: input.actorId,
+    contractAddress: env.ESCROW_CONTRACT_ADDRESS || undefined,
+    metadata: input.metadata,
+  });
+
+  try {
+    const result = await run();
+    await chainTransactions.markMined(chainTx.id, {
+      txHash: result.txHash,
+      contractAddress: env.ESCROW_CONTRACT_ADDRESS || undefined,
+      metadata: input.metadata,
+    });
+    return result;
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
+};
 
 const findOr404 = async (id: string): Promise<ILease> => {
   const lease = await Lease.findById(id);
@@ -140,14 +174,23 @@ export const fund = async (
   if (!lease.termsHash) {
     throw new AppError("Lease has no terms hash; propose it first", StatusCodes.CONFLICT);
   }
-  const result = await escrow.openAndFundEscrow({
-    leaseId: lease.id,
-    landlord: landlord.walletAddress,
-    tenant: tenant.walletAddress,
-    rentAmount: toBaseUnits(lease.monthlyRent),
-    depositAmount: toBaseUnits(lease.depositAmount),
-    termsHash: lease.termsHash,
-  });
+  const result = await trackEscrowTx(
+    {
+      operation: "lease_escrow.open_and_fund",
+      leaseId: lease.id,
+      actorId: userId,
+      metadata: { leaseId: lease.id },
+    },
+    () =>
+      escrow.openAndFundEscrow({
+        leaseId: lease.id,
+        landlord: landlord.walletAddress!,
+        tenant: tenant.walletAddress!,
+        rentAmount: toBaseUnits(lease.monthlyRent),
+        depositAmount: toBaseUnits(lease.depositAmount),
+        termsHash: lease.termsHash!,
+      }),
+  );
   lease.escrow.escrowId = result.escrowId;
   lease.escrow.contractAddress = env.ESCROW_CONTRACT_ADDRESS;
   lease.escrow.token = env.ESCROW_TOKEN_ADDRESS;
@@ -185,7 +228,15 @@ export const activate = async (
   const lease = await findOr404(id);
   ensureState(lease, ["proposed"]);
   const escrowId = requireFundedEscrow(lease);
-  const tx = await escrow.activateEscrow(escrowId);
+  const tx = await trackEscrowTx(
+    {
+      operation: "lease_escrow.activate",
+      leaseId: lease.id,
+      actorId: userId,
+      metadata: { escrowId },
+    },
+    () => escrow.activateEscrow(escrowId),
+  );
   lease.status = "active";
   lease.escrow.state = "active";
   lease.escrow.activateTxHash = tx.txHash;
@@ -206,7 +257,16 @@ export const cancel = async (
   }
   ensureState(lease, ["proposed"]);
   if (lease.escrow.state === "funded") {
-    const tx = await escrow.cancelEscrow(requireFundedEscrow(lease));
+    const escrowId = requireFundedEscrow(lease);
+    const tx = await trackEscrowTx(
+      {
+        operation: "lease_escrow.cancel",
+        leaseId: lease.id,
+        actorId: userId,
+        metadata: { escrowId },
+      },
+      () => escrow.cancelEscrow(escrowId),
+    );
     lease.escrow.state = "closed";
     lease.escrow.settleTxHash = tx.txHash;
   }
@@ -225,7 +285,16 @@ export const complete = async (
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
   ensureState(lease, ["active"]);
-  const tx = await escrow.refundDeposit(requireActiveEscrow(lease));
+  const escrowId = requireActiveEscrow(lease);
+  const tx = await trackEscrowTx(
+    {
+      operation: "lease_escrow.refund_deposit",
+      leaseId: lease.id,
+      actorId: userId,
+      metadata: { escrowId },
+    },
+    () => escrow.refundDeposit(escrowId),
+  );
   lease.status = "completed";
   lease.escrow.state = "closed";
   lease.escrow.settleTxHash = tx.txHash;
@@ -243,7 +312,16 @@ export const terminate = async (
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
   ensureState(lease, ["active"]);
-  const tx = await escrow.releaseDeposit(requireActiveEscrow(lease));
+  const escrowId = requireActiveEscrow(lease);
+  const tx = await trackEscrowTx(
+    {
+      operation: "lease_escrow.release_deposit",
+      leaseId: lease.id,
+      actorId: userId,
+      metadata: { escrowId },
+    },
+    () => escrow.releaseDeposit(escrowId),
+  );
   lease.status = "terminated";
   lease.escrow.state = "closed";
   lease.escrow.settleTxHash = tx.txHash;
@@ -287,15 +365,40 @@ export const resolveDispute = async (
     if (lease.escrow.state !== "funded") {
       throw new AppError("Can only cancel a funded (pre-activation) escrow", StatusCodes.CONFLICT);
     }
-    tx = await escrow.cancelEscrow(escrowId);
+    tx = await trackEscrowTx(
+      {
+        operation: "lease_escrow.cancel",
+        leaseId: lease.id,
+        actorId: userId,
+        metadata: { escrowId, disputeDecision: input.decision },
+      },
+      () => escrow.cancelEscrow(escrowId),
+    );
     finalStatus = "cancelled";
   } else {
     if (lease.escrow.state !== "active") {
       throw new AppError("Deposit settlement requires an active escrow", StatusCodes.CONFLICT);
     }
-    tx = input.decision === "release_deposit"
-      ? await escrow.releaseDeposit(escrowId)
-      : await escrow.refundDeposit(escrowId);
+    tx =
+      input.decision === "release_deposit"
+        ? await trackEscrowTx(
+            {
+              operation: "lease_escrow.release_deposit",
+              leaseId: lease.id,
+              actorId: userId,
+              metadata: { escrowId, disputeDecision: input.decision },
+            },
+            () => escrow.releaseDeposit(escrowId),
+          )
+        : await trackEscrowTx(
+            {
+              operation: "lease_escrow.refund_deposit",
+              leaseId: lease.id,
+              actorId: userId,
+              metadata: { escrowId, disputeDecision: input.decision },
+            },
+            () => escrow.refundDeposit(escrowId),
+          );
     finalStatus = input.decision === "release_deposit" ? "terminated" : "completed";
   }
   lease.status = finalStatus;
