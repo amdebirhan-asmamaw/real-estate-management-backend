@@ -4,6 +4,7 @@ import { Lease, ILease, LeaseStatus } from "./lease.model";
 import { Listing } from "../listings/listing.model";
 import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
+import { env } from "../../core/config/env";
 import { sha256 } from "../../core/utils/hash";
 import * as audit from "../audit/audit.service";
 import * as escrow from "../../core/blockchain/leaseEscrow.service";
@@ -148,8 +149,8 @@ export const fund = async (
     termsHash: lease.termsHash,
   });
   lease.escrow.escrowId = result.escrowId;
-  lease.escrow.contractAddress = process.env.ESCROW_CONTRACT_ADDRESS;
-  lease.escrow.token = process.env.ESCROW_TOKEN_ADDRESS;
+  lease.escrow.contractAddress = env.ESCROW_CONTRACT_ADDRESS;
+  lease.escrow.token = env.ESCROW_TOKEN_ADDRESS;
   lease.escrow.state = "funded";
   lease.escrow.fundTxHash = result.txHash;
   lease.escrow.landlordWallet = landlord.walletAddress;
