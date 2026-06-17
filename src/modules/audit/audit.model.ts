@@ -71,6 +71,11 @@ export const AUDIT_ACTIONS = [
   // Purchase transactions
   "purchase_transaction.created",
   "purchase_transaction.updated",
+  "purchase.escrow_funded",
+  "purchase.escrow_released",
+  "purchase.escrow_refunded",
+  "purchase.disputed",
+  "purchase.dispute_resolved",
   // Rental applications
   "rental_application.created",
   "rental_application.reviewed",

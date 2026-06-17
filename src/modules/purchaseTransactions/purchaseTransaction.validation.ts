@@ -65,3 +65,13 @@ export type UpdatePurchaseTransactionInput = {
     settlementStatement: boolean;
   }>;
 };
+
+export const disputeResolveSchema = Joi.object({
+  decision: Joi.string().valid("release", "refund").required(),
+  note: Joi.string().max(2000).allow(""),
+});
+
+export type DisputeResolveInput = {
+  decision: "release" | "refund";
+  note?: string;
+};
