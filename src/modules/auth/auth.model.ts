@@ -50,7 +50,7 @@ export interface IUser extends Document {
   emailVerified: boolean;
   mustResetPassword: boolean;
   walletAddress?: string;
-  walletStatus: 'unlinked' | 'linked';
+  walletStatus: 'unlinked' | 'pending_signature' | 'linked' | 'revoked';
   walletLinkChallenge?: IWalletLinkChallenge;
   kycDocuments: Types.DocumentArray<IKycDocument>;
   kycReviewNote?: string;
@@ -152,7 +152,7 @@ const userSchema = new Schema<IUser>(
     },
     walletStatus: {
       type: String,
-      enum: ['unlinked', 'linked'],
+      enum: ['unlinked', 'pending_signature', 'linked', 'revoked'],
       default: 'unlinked',
     },
     walletLinkChallenge: walletLinkChallengeSchema,
@@ -189,7 +189,11 @@ userSchema.pre('validate', function (next) {
   if (this.isNew && !this.accountStatus) {
     this.accountStatus = this.role === 'property_owner' ? 'pending' : 'active';
   }
-  this.walletStatus = this.walletAddress ? 'linked' : 'unlinked';
+  // Only auto-sync walletStatus for new documents; for existing docs the service
+  // sets walletStatus explicitly so we don't want to override pending_signature/revoked.
+  if (this.isNew) {
+    this.walletStatus = this.walletAddress ? 'linked' : 'unlinked';
+  }
   next();
 });
 

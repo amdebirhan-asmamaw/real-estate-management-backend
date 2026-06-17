@@ -403,6 +403,7 @@ export const createWalletChallenge = async (
     message,
     expiresAt,
   };
+  user.walletStatus = 'pending_signature';
   await user.save();
 
   return { walletAddress: normalized, message, expiresAt };
@@ -514,6 +515,48 @@ export const unlinkWallet = async (userId: string): Promise<PublicUser> => {
     action: 'user.wallet_unlinked',
     targetType: 'user',
     targetId: userId,
+  });
+
+  return toPublicUser(user);
+};
+
+/**
+ * Admin / security path — revokes a wallet link. Clears the address and
+ * challenge like unlinkWallet but marks status `revoked` rather than `unlinked`,
+ * making it distinguishable in audit trails. Blocked by active escrow guards
+ * identical to unlinkWallet.
+ */
+export const revokeWallet = async (userId: string): Promise<PublicUser> => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', StatusCodes.NOT_FOUND);
+  }
+
+  // Guard: prevent revoking while user is party to active/funded leases.
+  const activeLease = await Lease.findOne({
+    $or: [{ landlord: userId }, { tenant: userId }],
+    status: { $in: ['proposed', 'active', 'disputed'] },
+    'escrow.state': { $in: ['funded', 'active'] },
+  });
+  if (activeLease) {
+    throw new AppError(
+      'Cannot revoke wallet while user has active or funded lease escrows',
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.walletAddress = undefined;
+  user.walletStatus = 'revoked';
+  user.walletLinkChallenge = undefined;
+  await user.save();
+
+  await audit.record({
+    actor: userId,
+    actorRole: user.role,
+    action: 'user.wallet_unlinked',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { reason: 'revoked' },
   });
 
   return toPublicUser(user);
