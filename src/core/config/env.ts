@@ -52,6 +52,8 @@ const envSchema = Joi.object({
   // Lease escrow (ERC-20). Optional so the app/tests boot without a chain.
   ESCROW_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
   ESCROW_TOKEN_ADDRESS: Joi.string().allow("").default(""),
+  // Sale escrow (ERC-20). Optional so the app/tests boot without a chain.
+  SALE_ESCROW_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -90,6 +92,7 @@ interface Env {
   MINTER_PRIVATE_KEY: string;
   ESCROW_CONTRACT_ADDRESS: string;
   ESCROW_TOKEN_ADDRESS: string;
+  SALE_ESCROW_CONTRACT_ADDRESS: string;
 }
 
 const validated = value as Env;
