@@ -29,8 +29,52 @@ interface MarkMinedInput {
   metadata?: Record<string, unknown>;
 }
 
-export const begin = async (input: BeginInput): Promise<IChainTransaction> =>
-  ChainTransaction.create({
+/**
+ * Idempotency guard for open_and_fund operations.
+ *
+ * We choose a service-level check here rather than a DB unique index because:
+ *  1. The operations that need dedup are a subset (only *.open_and_fund).
+ *  2. A sparse partial index across (targetType, targetId, operation, status)
+ *     would be complex to maintain as statuses transition.
+ *  3. The DB-level escrow.state !== "none" gate in lease/purchase fund() already
+ *     prevents double-funding at the business layer; this guard provides a
+ *     belt-and-suspenders defence inside chainTransaction.begin itself, so a
+ *     concurrent race that slips past the DB state check also fails here.
+ *
+ * Any existing chainTransaction for this target with an open_and_fund operation
+ * in a non-failed status means a funding attempt is in flight or already done.
+ */
+const FUND_OPERATIONS: ChainTransactionOperation[] = [
+  "lease_escrow.open_and_fund",
+  "sale_escrow.open_and_fund",
+];
+
+const assertNoActiveFund = async (
+  targetType: ChainTransactionTargetType,
+  targetId: string,
+  operation: ChainTransactionOperation,
+): Promise<void> => {
+  if (!FUND_OPERATIONS.includes(operation)) return;
+
+  const existing = await ChainTransaction.findOne({
+    targetType,
+    targetId: new Types.ObjectId(targetId),
+    operation,
+    status: { $nin: ["failed"] },
+  });
+
+  if (existing) {
+    throw new AppError(
+      `An ${operation} transaction for this target already exists (id: ${existing.id}, status: ${existing.status}). ` +
+        "Reject duplicate fund to prevent double-spending.",
+      StatusCodes.CONFLICT,
+    );
+  }
+};
+
+export const begin = async (input: BeginInput): Promise<IChainTransaction> => {
+  await assertNoActiveFund(input.targetType, input.targetId, input.operation);
+  return ChainTransaction.create({
     operation: input.operation,
     status: "pending",
     targetType: input.targetType,
@@ -39,6 +83,7 @@ export const begin = async (input: BeginInput): Promise<IChainTransaction> =>
     contractAddress: input.contractAddress,
     metadata: input.metadata,
   });
+};
 
 export const markMined = async (
   id: string,
