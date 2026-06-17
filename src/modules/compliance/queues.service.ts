@@ -67,13 +67,15 @@ export const propertyVerificationQueue = async (
 };
 
 // ─── Certificate-Issuance Queue ───────────────────────────────────────────────
-// Listings that are approved AND have no tokenId (title certificate not yet issued).
+// Listings that are verified AND have no tokenId (title certificate not yet
+// issued). Matches the actual mintTitle gate in listing.service.ts (~line 772)
+// which requires verificationStatus === "verified" and no tokenId.
 
 export const certificatesQueue = async (
   q: QueueQuery,
 ): Promise<QueuePage<unknown>> => {
   const filter = {
-    status: "approved",
+    verificationStatus: "verified",
     $or: [{ tokenId: { $exists: false } }, { tokenId: null }, { tokenId: "" }],
   };
   const skip = (q.page - 1) * q.limit;
@@ -111,7 +113,8 @@ export const disputesQueue = async (
 
 // ─── Suspicious Queue ─────────────────────────────────────────────────────────
 // Open ComplianceCases of type "listing" or "offer" whose metadata.reason is
-// "suspicious", matching how flagSuspiciousListing sets the case fields.
+// "suspicious" OR "duplicate" — flagSuspiciousListing is called with both
+// reasons (listing.service.ts ~line 368), so both must appear in this queue.
 
 export const suspiciousQueue = async (
   q: QueueQuery,
@@ -119,7 +122,7 @@ export const suspiciousQueue = async (
   const filter = {
     status: { $in: ["open", "under_review"] },
     type: { $in: ["listing", "offer"] },
-    "metadata.reason": "suspicious",
+    "metadata.reason": { $in: ["suspicious", "duplicate"] },
   };
   const skip = (q.page - 1) * q.limit;
   const [items, total] = await Promise.all([

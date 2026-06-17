@@ -449,6 +449,7 @@ export const restoreUser = async (
     );
   }
 
+  const previousStatus = target.accountStatus;
   target.accountStatus = "active";
   await target.save();
 
@@ -458,7 +459,7 @@ export const restoreUser = async (
     action: "admin.restored_user",
     targetType: "user",
     targetId,
-    metadata: { previousStatus: target.accountStatus },
+    metadata: { previousStatus },
   });
 
   await notifications.notify({

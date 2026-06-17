@@ -155,32 +155,40 @@ describe("GET /compliance/queues/property-verification", () => {
 // ─── B1: Certificates Queue ───────────────────────────────────────────────────
 
 describe("GET /compliance/queues/certificates", () => {
-  it("returns approved listings without a tokenId, excludes others", async () => {
+  it("returns verified listings without a tokenId, excludes minted and unverified", async () => {
     const adminToken = await makeAdmin("cert-queue-admin@example.com");
     const ownerId = new mongoose.Types.ObjectId();
 
-    // Matches: approved + no tokenId
+    // Matches: verificationStatus=verified + no tokenId
     await Listing.create({
       ...listingBase(),
       title: "Needs Certificate",
-      status: "approved",
+      verificationStatus: "verified",
       createdBy: ownerId,
     });
 
-    // Does NOT match: approved but already has tokenId
+    // Does NOT match: verified but already has tokenId (already minted)
     await Listing.create({
       ...listingBase(),
       title: "Already Issued",
-      status: "approved",
+      verificationStatus: "verified",
       tokenId: "42",
       createdBy: ownerId,
     });
 
-    // Does NOT match: not approved
+    // Does NOT match: not verified (pending)
     await Listing.create({
       ...listingBase(),
-      title: "Still Draft",
-      status: "draft",
+      title: "Still Pending",
+      verificationStatus: "pending",
+      createdBy: ownerId,
+    });
+
+    // Does NOT match: not verified (unverified)
+    await Listing.create({
+      ...listingBase(),
+      title: "Unverified Draft",
+      verificationStatus: "unverified",
       createdBy: ownerId,
     });
 
@@ -287,6 +295,31 @@ describe("GET /compliance/queues/suspicious", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(1);
     expect(res.body.data.items[0].title).toBe("Suspicious listing");
+  });
+
+  it("includes duplicate-flagged cases in the suspicious queue", async () => {
+    const adminToken = await makeAdmin("suspicious-dup-admin@example.com");
+    const listingId = new mongoose.Types.ObjectId();
+
+    // Matches: type=listing, status=open, metadata.reason=duplicate
+    await ComplianceCase.create({
+      type: "listing",
+      status: "open",
+      severity: "medium",
+      title: "Duplicate listing case",
+      targetType: "listing",
+      targetId: listingId,
+      metadata: { reason: "duplicate" },
+    });
+
+    const res = await request(app)
+      .get("/api/v1/compliance/queues/suspicious")
+      .set(bearer(adminToken));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.total).toBeGreaterThanOrEqual(1);
+    const titles = res.body.data.items.map((c: { title: string }) => c.title);
+    expect(titles).toContain("Duplicate listing case");
   });
 });
 

@@ -358,6 +358,17 @@ export const adminFlagCase = async (
     subjectUserId = user.id as string;
   }
 
+  // Check if an open case already exists before calling openCase so we can
+  // detect create-vs-existing without refactoring openCase's return value.
+  const existingCase = input.targetId
+    ? await ComplianceCase.findOne({
+        type: input.targetType as ComplianceCaseType,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        status: { $in: ["open", "under_review"] },
+      })
+    : null;
+
   const complianceCase = await openCase({
     type: input.targetType as ComplianceCaseType,
     severity: input.severity as ComplianceSeverity,
@@ -369,19 +380,23 @@ export const adminFlagCase = async (
     metadata: { reason: "suspicious", flaggedBy: adminId },
   });
 
-  // Explicit admin audit (separate from the system-actor audit inside openCase).
-  await audit.record({
-    actor: adminId,
-    actorRole: adminRole,
-    action: "compliance.case_created",
-    targetType: "compliance",
-    targetId: complianceCase.id as string,
-    metadata: {
-      targetType: input.targetType,
-      targetId: input.targetId,
-      severity: input.severity,
-    },
-  });
+  // Only write the explicit admin audit when openCase actually created a new
+  // case (not when it returned an existing open case — openCase already wrote
+  // compliance.case_created in that path).
+  if (!existingCase) {
+    await audit.record({
+      actor: adminId,
+      actorRole: adminRole,
+      action: "compliance.case_created",
+      targetType: "compliance",
+      targetId: complianceCase.id as string,
+      metadata: {
+        targetType: input.targetType,
+        targetId: input.targetId,
+        severity: input.severity,
+      },
+    });
+  }
 
   return complianceCase;
 };

@@ -59,12 +59,13 @@ describe("POST /admin/users/:id/restore", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.accountStatus).toBe("active");
 
-    // Verify audit log was written
+    // Verify audit log was written with the correct previousStatus
     const logs = await AuditLog.find({
       action: "admin.restored_user",
       targetId: user!._id,
     });
     expect(logs).toHaveLength(1);
+    expect(logs[0].metadata?.previousStatus).toBe("blocked");
   });
 
   it("super_admin restores a suspended user → accountStatus=active", async () => {
