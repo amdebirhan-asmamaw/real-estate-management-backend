@@ -1,5 +1,6 @@
 import { StatusCodes } from "http-status-codes";
 import { parseUnits } from "ethers";
+import { Types } from "mongoose";
 import { Lease, ILease, LeaseStatus } from "./lease.model";
 import { Listing } from "../listings/listing.model";
 import { User } from "../auth/auth.model";
@@ -183,6 +184,42 @@ export const propose = async (
   return lease;
 };
 
+export const sign = async (
+  id: string,
+  userId: string,
+  role: string,
+  tenantSignature?: string,
+): Promise<ILease> => {
+  const lease = await findOr404(id);
+  // Only the tenant of this lease (or an admin acting on their behalf) may sign.
+  if (!isAdmin(role) && lease.tenant.toString() !== userId) {
+    throw new AppError(
+      "Only the tenant of this lease may sign it",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  ensureState(lease, ["proposed"]);
+  lease.signedByTenantAt = new Date();
+  if (tenantSignature !== undefined) {
+    lease.tenantSignature = tenantSignature;
+  }
+  await lease.save();
+  await audit.record({
+    actor: userId, actorRole: role, action: "lease.signed",
+    targetType: "lease", targetId: lease.id,
+    metadata: { tenantSignature },
+  });
+  // Notify landlord that the tenant has signed.
+  await notifications.notify({
+    recipient: lease.landlord.toString(),
+    type: "lease.status_update",
+    title: "Tenant signed the lease",
+    message: "The tenant has signed the lease. You may now proceed to fund escrow.",
+    metadata: { leaseId: lease.id, status: lease.status },
+  });
+  return lease;
+};
+
 // NOTE: each money-moving transition calls the chain BEFORE persisting the new
 // lease/escrow state. In this custodial design that's an accepted trade-off —
 // funds are never lost, only the record could lag if the DB write fails after a
@@ -195,6 +232,12 @@ export const fund = async (
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
   ensureState(lease, ["proposed"]);
+  if (!lease.signedByTenantAt) {
+    throw new AppError(
+      "Tenant must sign the lease before escrow can be funded",
+      StatusCodes.CONFLICT,
+    );
+  }
   if (lease.escrow.state !== "none") {
     throw new AppError("Escrow already funded", StatusCodes.CONFLICT);
   }
@@ -414,7 +457,7 @@ export const terminate = async (
 };
 
 export const dispute = async (
-  id: string, userId: string, role: string,
+  id: string, userId: string, role: string, reason?: string,
 ): Promise<ILease> => {
   const lease = await findOr404(id);
   if (!isAdmin(role) && !isParty(lease, userId)) {
@@ -422,20 +465,75 @@ export const dispute = async (
   }
   ensureState(lease, ["proposed", "active"]);
   lease.status = "disputed";
+  lease.dispute = {
+    openedBy: new Types.ObjectId(userId),
+    openedAt: new Date(),
+    reason,
+  };
   await lease.save();
   await audit.record({
     actor: userId, actorRole: role, action: "lease.disputed",
     targetType: "lease", targetId: lease.id,
+    metadata: { reason },
   });
   await notifyLeaseParties(
     lease,
     "Lease disputed",
     "A dispute was opened for this lease.",
+    { reason },
   );
   await compliance.flagLeaseDispute({
     leaseId: lease.id,
     landlordId: lease.landlord.toString(),
     tenantId: lease.tenant.toString(),
+  });
+  return lease;
+};
+
+export const respondToDispute = async (
+  id: string, userId: string, role: string, response: string,
+): Promise<ILease> => {
+  const lease = await findOr404(id);
+  ensureState(lease, ["disputed"]);
+  // Only the counterparty (the party who did NOT open the dispute) or admin may respond.
+  if (!isAdmin(role)) {
+    if (!isParty(lease, userId)) {
+      throw new AppError("Not allowed", StatusCodes.FORBIDDEN);
+    }
+    const openedBy = lease.dispute?.openedBy?.toString();
+    if (openedBy && openedBy === userId) {
+      throw new AppError(
+        "The party who opened the dispute cannot respond to their own dispute",
+        StatusCodes.FORBIDDEN,
+      );
+    }
+  }
+  if (!lease.dispute) {
+    // Initialise dispute sub-doc if somehow missing (shouldn't normally happen).
+    lease.dispute = {};
+  }
+  lease.dispute.response = response;
+  lease.dispute.respondedBy = new Types.ObjectId(userId);
+  lease.dispute.respondedAt = new Date();
+  await lease.save();
+  await audit.record({
+    actor: userId, actorRole: role, action: "lease.dispute_responded",
+    targetType: "lease", targetId: lease.id,
+    metadata: { response },
+  });
+  // Notify the other party (the opener, or both parties if opened by admin/unknown).
+  const openedById = lease.dispute.openedBy?.toString();
+  const notifyRecipient = openedById && openedById !== userId
+    ? openedById
+    : lease.landlord.toString() !== userId
+      ? lease.landlord.toString()
+      : lease.tenant.toString();
+  await notifications.notify({
+    recipient: notifyRecipient,
+    type: "lease.status_update",
+    title: "Dispute response received",
+    message: "The counterparty has responded to the dispute.",
+    metadata: { leaseId: lease.id, status: lease.status, response },
   });
   return lease;
 };

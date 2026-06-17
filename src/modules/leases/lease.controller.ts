@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import * as service from "./lease.service";
 import { sendSuccess, sendCreated } from "../../core/utils/response";
-import type { CreateLeaseInput, DisputeResolveInput } from "./lease.validation";
+import type {
+  CreateLeaseInput,
+  DisputeResolveInput,
+  SignLeaseInput,
+  DisputeOpenInput,
+  DisputeRespondInput,
+} from "./lease.validation";
 
 type Handler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
@@ -22,6 +28,21 @@ export const propose: Handler = async (req, res, next) => {
   try {
     const lease = await service.propose(req.params.id, req.user!.userId, req.user!.role);
     sendSuccess(res, lease, "Lease proposed");
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const sign: Handler = async (req, res, next) => {
+  try {
+    const body = req.body as SignLeaseInput;
+    const lease = await service.sign(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+      body.tenantSignature,
+    );
+    sendSuccess(res, lease, "Lease signed");
   } catch (e) {
     next(e);
   }
@@ -74,8 +95,29 @@ export const terminate: Handler = async (req, res, next) => {
 
 export const dispute: Handler = async (req, res, next) => {
   try {
-    const lease = await service.dispute(req.params.id, req.user!.userId, req.user!.role);
+    const body = req.body as DisputeOpenInput;
+    const lease = await service.dispute(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+      body.reason,
+    );
     sendSuccess(res, lease, "Lease disputed");
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const disputeRespond: Handler = async (req, res, next) => {
+  try {
+    const body = req.body as DisputeRespondInput;
+    const lease = await service.respondToDispute(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+      body.response,
+    );
+    sendSuccess(res, lease, "Dispute response recorded");
   } catch (e) {
     next(e);
   }

@@ -23,6 +23,15 @@ export interface ILeaseEscrow {
   tenantWallet?: string;
 }
 
+export interface ILeaseDispute {
+  openedBy?: Types.ObjectId;
+  openedAt?: Date;
+  reason?: string;
+  response?: string;
+  respondedBy?: Types.ObjectId;
+  respondedAt?: Date;
+}
+
 export interface ILease extends Document {
   listing: Types.ObjectId;
   landlord: Types.ObjectId;
@@ -37,6 +46,9 @@ export interface ILease extends Document {
   termsHash?: string;
   status: LeaseStatus;
   escrow: ILeaseEscrow;
+  signedByTenantAt?: Date;
+  tenantSignature?: string;
+  dispute?: ILeaseDispute;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +69,18 @@ const escrowSchema = new Schema<ILeaseEscrow>(
     settleTxHash: String,
     landlordWallet: String,
     tenantWallet: String,
+  },
+  { _id: false },
+);
+
+const disputeSubSchema = new Schema<ILeaseDispute>(
+  {
+    openedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    openedAt: Date,
+    reason: String,
+    response: String,
+    respondedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    respondedAt: Date,
   },
   { _id: false },
 );
@@ -89,6 +113,9 @@ const leaseSchema = new Schema<ILease>(
       index: true,
     },
     escrow: { type: escrowSchema, default: () => ({ state: "none" }) },
+    signedByTenantAt: Date,
+    tenantSignature: String,
+    dispute: { type: disputeSubSchema },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
   },
   {

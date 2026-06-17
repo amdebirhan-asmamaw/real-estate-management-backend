@@ -56,12 +56,14 @@ export const AUDIT_ACTIONS = [
   // Lease lifecycle
   "lease.created",
   "lease.proposed",
+  "lease.signed",
   "lease.escrow_funded",
   "lease.activated",
   "lease.cancelled",
   "lease.completed",
   "lease.terminated",
   "lease.disputed",
+  "lease.dispute_responded",
   "lease.dispute_resolved",
   // Compliance
   "compliance.case_created",
