@@ -7,6 +7,8 @@ export const SALE_ESCROW_ABI = [
   "function refund(uint256 escrowId)",
   "function escrowState(uint256 escrowId) view returns (uint8)",
   "function getEscrow(uint256 escrowId) view returns (tuple(string saleId, address buyer, address seller, address token, uint256 amount, bytes32 termsHash, uint8 state))",
+  // ERC-20 token helper — read decimals for amount scaling
+  "function decimals() view returns (uint8)",
   "event EscrowFunded(uint256 indexed escrowId, string saleId, address indexed buyer, address indexed seller, uint256 amount)",
   "event EscrowReleased(uint256 indexed escrowId, address indexed seller, uint256 amount)",
   "event EscrowRefunded(uint256 indexed escrowId, address indexed buyer, uint256 amount)",

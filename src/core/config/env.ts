@@ -54,6 +54,10 @@ const envSchema = Joi.object({
   ESCROW_TOKEN_ADDRESS: Joi.string().allow("").default(""),
   // Sale escrow (ERC-20). Optional so the app/tests boot without a chain.
   SALE_ESCROW_CONTRACT_ADDRESS: Joi.string().allow("").default(""),
+  // Set to "true" to allow escrow operations on Ethereum mainnet (chainId 1).
+  // Defaults to false — mainnet is blocked unless explicitly opted in to prevent
+  // accidental real-money transactions in staging or misconfigured environments.
+  ALLOW_MAINNET_ESCROW: Joi.boolean().default(false),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -93,6 +97,7 @@ interface Env {
   ESCROW_CONTRACT_ADDRESS: string;
   ESCROW_TOKEN_ADDRESS: string;
   SALE_ESCROW_CONTRACT_ADDRESS: string;
+  ALLOW_MAINNET_ESCROW: boolean;
 }
 
 const validated = value as Env;

@@ -7,6 +7,8 @@ jest.mock("../src/core/blockchain/leaseEscrow.service", () => ({
   refundDeposit: jest.fn(async () => ({ txHash: "0xrefund" })),
   getEscrow: jest.fn(async () => ({ state: "funded" })),
   isConfigured: () => true,
+  // D2: token-decimals helper — return standard 18-decimal base units in tests.
+  toBaseUnits: jest.fn(async (amount: number) => BigInt(amount) * BigInt(10 ** 18)),
 }));
 
 import mongoose from "mongoose";

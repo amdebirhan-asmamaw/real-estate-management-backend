@@ -1,5 +1,4 @@
 import { StatusCodes } from "http-status-codes";
-import { parseUnits } from "ethers";
 import { Types } from "mongoose";
 import { Lease, ILease, LeaseStatus } from "./lease.model";
 import { Listing } from "../listings/listing.model";
@@ -19,9 +18,10 @@ const ADMIN_ROLES = ["admin", "super_admin"];
 const isAdmin = (role: string | null): boolean =>
   role !== null && ADMIN_ROLES.includes(role);
 
-const TOKEN_DECIMALS = 18;
-const toBaseUnits = (amount: number): bigint =>
-  parseUnits(amount.toString(), TOKEN_DECIMALS);
+// Amount scaling uses the token's actual decimals (read on first use from the
+// token contract and cached).  Delegates to leaseEscrow.service.toBaseUnits.
+const toBaseUnits = (amount: number): Promise<bigint> =>
+  escrow.toBaseUnits(amount);
 
 const trackEscrowTx = async <T extends { txHash: string }>(
   input: {
@@ -275,14 +275,15 @@ export const fund = async (
       metadata: { leaseId: lease.id },
     },
     () =>
-      escrow.openAndFundEscrow({
-        leaseId: lease.id,
-        landlord: landlord.walletAddress!,
-        tenant: tenant.walletAddress!,
-        rentAmount: toBaseUnits(lease.monthlyRent),
-        depositAmount: toBaseUnits(lease.depositAmount),
-        termsHash: lease.termsHash!,
-      }),
+      (async () =>
+        escrow.openAndFundEscrow({
+          leaseId: lease.id,
+          landlord: landlord.walletAddress!,
+          tenant: tenant.walletAddress!,
+          rentAmount: await toBaseUnits(lease.monthlyRent),
+          depositAmount: await toBaseUnits(lease.depositAmount),
+          termsHash: lease.termsHash!,
+        }))(),
   );
   lease.escrow.escrowId = result.escrowId;
   lease.escrow.contractAddress = env.ESCROW_CONTRACT_ADDRESS;

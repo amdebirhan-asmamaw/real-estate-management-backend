@@ -1,6 +1,5 @@
 import { StatusCodes } from "http-status-codes";
 import { FilterQuery, Types } from "mongoose";
-import { parseUnits } from "ethers";
 import {
   IPurchaseTransaction,
   PurchaseTransaction,
@@ -25,9 +24,10 @@ import type {
 const ADMIN_ROLES = ["admin", "super_admin"];
 const isAdmin = (role: string | null) => role !== null && ADMIN_ROLES.includes(role);
 
-const TOKEN_DECIMALS = 18;
-const toBaseUnits = (amount: number): bigint =>
-  parseUnits(amount.toString(), TOKEN_DECIMALS);
+// Amount scaling uses the token's actual decimals (read on first use from the
+// token contract and cached).  Delegates to saleEscrow.service.toBaseUnits.
+const toBaseUnits = (amount: number): Promise<bigint> =>
+  saleEscrow.toBaseUnits(amount);
 
 const trackEscrowTx = async <T extends { txHash: string }>(
   input: {
@@ -339,12 +339,12 @@ export const fund = async (
       actorId: userId,
       metadata: { purchaseTransactionId: pt.id },
     },
-    () =>
+    async () =>
       saleEscrow.openAndFundEscrow({
         saleId: pt.id,
         buyer: buyer.walletAddress!,
         seller: seller.walletAddress!,
-        amount: toBaseUnits(pt.amount),
+        amount: await toBaseUnits(pt.amount),
         termsHash,
       }),
   );
