@@ -104,6 +104,19 @@ export const adminGetUserDocumentUrl: Handler = async (req, res, next) => {
   }
 };
 
+export const adminStartKycReview: Handler = async (req, res, next) => {
+  try {
+    const summary = await kyc.startKycReview(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, summary, "KYC review started");
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const adminSetAccountStatus: Handler = async (req, res, next) => {
   try {
     const { accountStatus } = req.body as AccountStatusInput;

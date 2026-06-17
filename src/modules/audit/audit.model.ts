@@ -21,8 +21,10 @@ export const AUDIT_ACTIONS = [
   "admin.reactivated_admin",
   // KYC
   "user.kyc_submitted",
+  "user.kyc_resubmitted",
   "user.kyc_approved",
   "user.kyc_rejected",
+  "user.kyc_review_started",
   "user.status_changed",
   // Listing lifecycle
   "listing.created",

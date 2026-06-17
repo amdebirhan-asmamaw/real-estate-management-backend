@@ -62,24 +62,30 @@ const summarize = (user: IUser): KycSummary => ({
   })),
 });
 
-/** A user submits private KYC documents; their KYC moves to pending. */
+/** A user submits private KYC documents; their KYC moves to pending.
+ *  If the user is resubmitting after a rejection the audit action is
+ *  `user.kyc_resubmitted` instead of `user.kyc_submitted`.
+ */
 export const submitKyc = async (
   userId: string,
   docs: NewKycDocument[],
 ): Promise<KycSummary> => {
   const user = await findUserOr404(userId);
+  const isResubmission = user.kycStatus === "rejected";
+
   docs.forEach((d) =>
     user.kycDocuments.push({ ...d, status: "pending", uploadedAt: new Date() }),
   );
   user.kycStatus = "pending";
   await user.save();
 
+  const auditAction = isResubmission ? "user.kyc_resubmitted" : "user.kyc_submitted";
   await Promise.all(
     docs.map((d) =>
       audit.record({
         actor: userId,
         actorRole: user.role,
-        action: "user.kyc_submitted",
+        action: auditAction,
         targetType: "user",
         targetId: userId,
         metadata: { type: d.type },
@@ -116,8 +122,46 @@ export const getKycDocumentUrl = async (
 };
 
 /**
+ * An admin moves a user's KYC from `pending` → `under_review` to signal
+ * that review has started. Approve/reject still work from either state.
+ */
+export const startKycReview = async (
+  targetUserId: string,
+  adminId: string,
+  role: string | null,
+): Promise<KycSummary> => {
+  if (!isAdminRole(role)) {
+    throw new AppError(
+      "Only an administrator can start a KYC review",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  const user = await findUserOr404(targetUserId);
+  if (user.kycStatus !== "pending") {
+    throw new AppError(
+      "KYC must be in pending status to start review",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.kycStatus = "under_review";
+  await user.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role ?? "admin",
+    action: "user.kyc_review_started",
+    targetType: "user",
+    targetId: targetUserId,
+  });
+
+  return summarize(user);
+};
+
+/**
  * An admin reviews a user's KYC. Approval verifies the user and activates the
  * account; rejection marks KYC rejected (the user may resubmit while pending).
+ * Works from either `pending` or `under_review` status.
  */
 export const reviewKyc = async (
   targetUserId: string,
@@ -133,6 +177,13 @@ export const reviewKyc = async (
     );
   }
   const user = await findUserOr404(targetUserId);
+
+  if (user.kycStatus !== "pending" && user.kycStatus !== "under_review") {
+    throw new AppError(
+      "KYC must be in pending or under_review status to be reviewed",
+      StatusCodes.CONFLICT,
+    );
+  }
 
   const docStatus = decision === "approve" ? "approved" : "rejected";
   user.kycDocuments.forEach((d) => {
