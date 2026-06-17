@@ -75,3 +75,9 @@ adminUserRouter.post(
   admins,
   controller.blockUser,
 );
+adminUserRouter.post(
+  "/users/:id/wallet/revoke",
+  authenticate,
+  admins,
+  controller.revokeUserWallet,
+);

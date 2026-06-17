@@ -3,6 +3,7 @@ import { User, IUser, type UserRole } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
+import * as authService from "../auth/auth.service";
 import type {
   CreateAdminInput,
   ListUsersQuery,
@@ -363,6 +364,24 @@ export const reactivateUser = async (
   });
 
   return toUserDetail(target);
+};
+
+export const revokeUserWallet = async (
+  targetId: string,
+  _actorId: string,
+  actorRole: string,
+): Promise<ReturnType<typeof toUserDetail>> => {
+  const target = await findUserOr404(targetId);
+  guardStatusChange(target, actorRole, "revoke wallet for");
+
+  // Delegates escrow guard + state update + audit to authService.revokeWallet.
+  // authService records the audit action under the target's own identity;
+  // the admin action is reflected via guardStatusChange above.
+  await authService.revokeWallet(targetId);
+
+  // Re-fetch to return a fresh snapshot after the wallet was cleared.
+  const updated = await findUserOr404(targetId);
+  return toUserDetail(updated);
 };
 
 export const blockUser = async (

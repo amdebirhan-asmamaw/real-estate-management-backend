@@ -153,8 +153,8 @@ export const extraPaths: Record<string, unknown> = {
         { name: "search", in: "query", schema: { type: "string", maxLength: 100 }, description: "Matches name or email" },
         { name: "role", in: "query", schema: { type: "string", enum: ["super_admin", "admin", "property_owner", "tenant"] } },
         { name: "status", in: "query", schema: { type: "string", enum: ["pending", "active", "suspended", "blocked", "rejected"] } },
-        { name: "kycStatus", in: "query", schema: { type: "string", enum: ["not_started", "pending", "under_review", "verified", "rejected"] } },
-        { name: "walletStatus", in: "query", schema: { type: "string", enum: ["unlinked", "linked"] } },
+        { name: "kycStatus", in: "query", schema: { type: "string", enum: ["not_started", "pending", "under_review", "verified", "rejected", "expired"] } },
+        { name: "walletStatus", in: "query", schema: { type: "string", enum: ["unlinked", "pending_signature", "linked", "revoked"] } },
         { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "-createdAt", "name", "-name", "email", "-email"], default: "-createdAt" } },
         page, limit,
       ],
@@ -172,6 +172,9 @@ export const extraPaths: Record<string, unknown> = {
   },
   "/admin/users/{id}/block": {
     post: { tags: ["Admin"], summary: "Block user permanently", security: bearer, parameters: [idParam], responses: ok("Blocked") },
+  },
+  "/admin/users/{id}/wallet/revoke": {
+    post: { tags: ["Admin"], summary: "Revoke user wallet (admin)", security: bearer, parameters: [idParam], responses: ok("Wallet revoked") },
   },
   "/admin/admins": {
     get: {

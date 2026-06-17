@@ -12,6 +12,7 @@ export const AUDIT_ACTIONS = [
   "user.profile_updated",
   "user.wallet_linked",
   "user.wallet_unlinked",
+  "user.wallet_revoked",
   // Admin management
   "admin.created_admin",
   "admin.suspended_user",

@@ -5,7 +5,9 @@ jest.mock("../src/modules/notifications/notification.service", () => ({
 
 import mongoose from "mongoose";
 import { Wallet } from "ethers";
+import { StatusCodes } from "http-status-codes";
 import { User } from "../src/modules/auth/auth.model";
+import { Lease } from "../src/modules/leases/lease.model";
 import { AppError } from "../src/core/utils/AppError";
 import * as authService from "../src/modules/auth/auth.service";
 
@@ -91,5 +93,41 @@ describe("wallet link lifecycle", () => {
   it("revokeWallet on non-existent user throws AppError", async () => {
     const fakeId = new mongoose.Types.ObjectId().toString();
     await expect(authService.revokeWallet(fakeId)).rejects.toBeInstanceOf(AppError);
+  });
+
+  it("revokeWallet throws CONFLICT when user has an active/funded lease escrow", async () => {
+    const user = await makeUser("wl6@example.com");
+
+    // Stub Lease.findOne to simulate an active escrow involving this user.
+    const findOneSpy = jest
+      .spyOn(Lease, "findOne")
+      .mockResolvedValueOnce({
+        _id: new mongoose.Types.ObjectId(),
+        landlord: user.id,
+        status: "active",
+        escrow: { state: "active" },
+      } as never);
+
+    const err = await authService.revokeWallet(user.id).catch((e) => e);
+    expect(err).toBeInstanceOf(AppError);
+    expect((err as AppError).statusCode).toBe(StatusCodes.CONFLICT);
+
+    findOneSpy.mockRestore();
+  });
+
+  it("createWalletChallenge does NOT set walletAddress on the user", async () => {
+    const user = await makeUser("wl7@example.com");
+    const ethWallet = Wallet.createRandom();
+
+    await authService.createWalletChallenge(user.id, ethWallet.address);
+
+    const fresh = await User.findById(user.id);
+    // walletAddress must remain unset — only the challenge is stored so that
+    // the DB uniqueness constraint on walletAddress is not violated early.
+    expect(fresh?.walletAddress).toBeUndefined();
+    expect(fresh?.walletStatus).toBe("pending_signature");
+    expect(fresh?.walletLinkChallenge?.walletAddress).toBe(
+      ethWallet.address.toLowerCase(),
+    );
   });
 });

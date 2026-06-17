@@ -553,7 +553,7 @@ export const revokeWallet = async (userId: string): Promise<PublicUser> => {
   await audit.record({
     actor: userId,
     actorRole: user.role,
-    action: 'user.wallet_unlinked',
+    action: 'user.wallet_revoked',
     targetType: 'user',
     targetId: userId,
     metadata: { reason: 'revoked' },

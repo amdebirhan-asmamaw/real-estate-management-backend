@@ -81,7 +81,7 @@ export const submitKyc = async (
   docs: NewKycDocument[],
 ): Promise<KycSummary> => {
   const user = await findUserOr404(userId);
-  const isResubmission = user.kycStatus === "rejected";
+  const isResubmission = user.kycStatus === "rejected" || user.kycStatus === "expired";
 
   docs.forEach((d) =>
     user.kycDocuments.push({ ...d, status: "pending", uploadedAt: new Date() }),

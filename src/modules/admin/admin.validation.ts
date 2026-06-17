@@ -39,10 +39,10 @@ export const listUsersSchema = Joi.object({
     .valid("pending", "active", "suspended", "blocked", "rejected")
     .messages({ "any.only": "Invalid account status filter" }),
   kycStatus: Joi.string()
-    .valid("not_started", "pending", "under_review", "verified", "rejected")
+    .valid("not_started", "pending", "under_review", "verified", "rejected", "expired")
     .messages({ "any.only": "Invalid KYC status filter" }),
   walletStatus: Joi.string()
-    .valid("unlinked", "linked")
+    .valid("unlinked", "pending_signature", "linked", "revoked")
     .messages({ "any.only": "Invalid wallet status filter" }),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),

@@ -125,3 +125,16 @@ export const blockUser: Handler = async (req, res, next) => {
     next(error);
   }
 };
+
+export const revokeUserWallet: Handler = async (req, res, next) => {
+  try {
+    const user = await adminService.revokeUserWallet(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, user, "User wallet revoked");
+  } catch (error) {
+    next(error);
+  }
+};
