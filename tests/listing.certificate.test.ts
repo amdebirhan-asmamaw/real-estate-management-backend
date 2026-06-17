@@ -16,6 +16,7 @@ import mongoose from "mongoose";
 import * as service from "../src/modules/listings/listing.service";
 import * as chain from "../src/core/blockchain/propertyTitle.service";
 import { Listing } from "../src/modules/listings/listing.model";
+import { ChainTransaction } from "../src/modules/chainTransactions/chainTransaction.model";
 import { AuditLog } from "../src/modules/audit/audit.model";
 import { Notification } from "../src/modules/notifications/notification.model";
 import type { CreateListingInput } from "../src/modules/listings/listing.validation";
@@ -253,5 +254,74 @@ describe("clearOnChainTitleDispute (certificate restore)", () => {
     });
     cert = await service.getCertificate(listing.id, null, null);
     expect(cert.status).toBe("issued");
+  });
+});
+
+// ─── A6: Additional edge-case tests ──────────────────────────────────────────
+
+describe("getCertificate — visibility guard", () => {
+  it("throws 404 for an unpublished listing accessed anonymously", async () => {
+    const doc = await service.createListing(baseInput, ownerId, "property_owner");
+    // Status is 'draft' by default — not visible to anonymous users.
+    await expect(service.getCertificate(doc.id, null, null)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+});
+
+describe("disputeOnChainTitle — suspend with no tokenId", () => {
+  it("throws 409 when listing has no minted tokenId", async () => {
+    const doc = await service.createListing(baseInput, ownerId, "property_owner");
+    await Listing.findByIdAndUpdate(doc.id, {
+      status: "published",
+      verificationStatus: "verified",
+      ownershipDocumentHash: "deadbeef",
+    });
+    await expect(
+      service.disputeOnChainTitle(doc.id, "fraud", adminId, "admin"),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe("clearOnChainTitleDispute — restore with no tokenId", () => {
+  it("throws 409 when listing has no minted tokenId", async () => {
+    const doc = await service.createListing(baseInput, ownerId, "property_owner");
+    await Listing.findByIdAndUpdate(doc.id, {
+      status: "suspended",
+    });
+    await expect(
+      service.clearOnChainTitleDispute(doc.id, "resolved", adminId, "admin"),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe("chainTransaction records for dispute / clear_dispute", () => {
+  it("suspend writes a chainTransaction record with operation title.dispute and status mined", async () => {
+    const listing = await mintedListing();
+
+    await service.disputeOnChainTitle(listing.id, "suspected_fraud", adminId, "admin");
+
+    const tx = await ChainTransaction.findOne({
+      targetId: listing._id,
+      operation: "title.dispute",
+    });
+    expect(tx).not.toBeNull();
+    expect(tx!.status).toBe("mined");
+    expect(tx!.txHash).toBe("0xdisputetx");
+  });
+
+  it("restore writes a chainTransaction record with operation title.clear_dispute and status mined", async () => {
+    const listing = await mintedListing();
+    await service.disputeOnChainTitle(listing.id, "suspected_fraud", adminId, "admin");
+
+    await service.clearOnChainTitleDispute(listing.id, "case_dismissed", adminId, "admin");
+
+    const tx = await ChainTransaction.findOne({
+      targetId: listing._id,
+      operation: "title.clear_dispute",
+    });
+    expect(tx).not.toBeNull();
+    expect(tx!.status).toBe("mined");
+    expect(tx!.txHash).toBe("0xcleartx");
   });
 });

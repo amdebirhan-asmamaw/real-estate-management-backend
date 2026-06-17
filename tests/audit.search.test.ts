@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import * as audit from "../src/modules/audit/audit.service";
 import { AuditLog } from "../src/modules/audit/audit.model";
+import { auditQuerySchema } from "../src/modules/audit/audit.validation";
 
 const actor1 = new mongoose.Types.ObjectId().toString();
 const actor2 = new mongoose.Types.ObjectId().toString();
@@ -175,5 +176,45 @@ describe("audit.listAuditLogs — new search filters", () => {
       expect(total).toBe(1);
       expect(items[0].action).toBe("listing.created");
     });
+  });
+});
+
+// ─── auditQuerySchema — to >= from guard ─────────────────────────────────────
+
+describe("auditQuerySchema — date-range validation", () => {
+  it("rejects when 'to' is before 'from'", () => {
+    const { error } = auditQuerySchema.validate({
+      from: "2025-06-01T00:00:00Z",
+      to: "2025-01-01T00:00:00Z",
+      page: 1,
+      limit: 20,
+    });
+    expect(error).toBeDefined();
+    expect(error!.details[0].message).toMatch(/must be greater than or equal to/i);
+  });
+
+  it("accepts when 'to' equals 'from'", () => {
+    const { error } = auditQuerySchema.validate({
+      from: "2025-06-01T00:00:00Z",
+      to: "2025-06-01T00:00:00Z",
+      page: 1,
+      limit: 20,
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it("accepts a valid range where 'to' is after 'from'", () => {
+    const { error } = auditQuerySchema.validate({
+      from: "2025-01-01T00:00:00Z",
+      to: "2025-06-01T00:00:00Z",
+      page: 1,
+      limit: 20,
+    });
+    expect(error).toBeUndefined();
+  });
+
+  it("accepts when neither 'from' nor 'to' is provided", () => {
+    const { error } = auditQuerySchema.validate({ page: 1, limit: 20 });
+    expect(error).toBeUndefined();
   });
 });

@@ -2,6 +2,9 @@ import { Schema, model, Document, Types } from "mongoose";
 
 export const CHAIN_TRANSACTION_OPERATIONS = [
   "title.mint",
+  "title.dispute",
+  "title.clear_dispute",
+  "title.revoke",
   "lease_escrow.open_and_fund",
   "lease_escrow.activate",
   "lease_escrow.cancel",

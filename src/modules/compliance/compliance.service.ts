@@ -82,13 +82,17 @@ export const openCase = async (input: {
 
   // Notify the affected subject best-effort.
   if (input.subjectUser) {
-    await notifications.notify({
-      recipient: input.subjectUser,
-      type: "compliance.case_opened",
-      title: "Compliance case opened",
-      message: `A compliance case (${input.type}) has been opened regarding your account.`,
-      metadata: { caseId: created.id, type: input.type, severity: input.severity },
-    });
+    try {
+      await notifications.notify({
+        recipient: input.subjectUser,
+        type: "compliance.case_opened",
+        title: "Compliance case opened",
+        message: `A compliance case (${input.type}) has been opened regarding your account.`,
+        metadata: { caseId: created.id, type: input.type, severity: input.severity },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
 
   return created;

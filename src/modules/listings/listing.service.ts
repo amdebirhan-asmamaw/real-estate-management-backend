@@ -896,7 +896,26 @@ export const disputeOnChainTitle = async (
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.disputeTitle(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.dispute",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.disputeTitle(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Sync listing status → suspended if currently published.
   if (listing.status === "published") {
@@ -936,7 +955,26 @@ export const clearOnChainTitleDispute = async (
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.clearTitleDispute(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.clear_dispute",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.clearTitleDispute(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Sync listing status → published if currently suspended due to dispute.
   if (listing.status === "suspended") {
@@ -976,7 +1014,26 @@ export const revokeOnChainTitleForListing = async (
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.revokeOnChainTitle(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.revoke",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.revokeOnChainTitle(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Revoked titles → archive the listing permanently.
   listing.status = "archived";
