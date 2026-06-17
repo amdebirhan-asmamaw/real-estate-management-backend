@@ -12,7 +12,7 @@ export type AccountStatus =
   | 'blocked'
   | 'rejected';
 
-export type KycStatus = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected';
+export type KycStatus = 'not_started' | 'pending' | 'under_review' | 'verified' | 'rejected' | 'expired';
 
 export type KycDocumentType =
   | 'national_id'
@@ -54,6 +54,8 @@ export interface IUser extends Document {
   walletLinkChallenge?: IWalletLinkChallenge;
   kycDocuments: Types.DocumentArray<IKycDocument>;
   kycReviewNote?: string;
+  kycVerifiedAt?: Date;
+  kycExpiresAt?: Date;
   failedLoginAttempts: number;
   lastFailedLoginAt?: Date;
   passwordResetToken?: string;
@@ -130,7 +132,7 @@ const userSchema = new Schema<IUser>(
     },
     kycStatus: {
       type: String,
-      enum: ['not_started', 'pending', 'under_review', 'verified', 'rejected'],
+      enum: ['not_started', 'pending', 'under_review', 'verified', 'rejected', 'expired'],
       default: 'not_started',
     },
     emailVerified: { type: Boolean, default: false },
@@ -156,6 +158,8 @@ const userSchema = new Schema<IUser>(
     walletLinkChallenge: walletLinkChallengeSchema,
     kycDocuments: { type: [kycDocumentSchema], default: [] },
     kycReviewNote: String,
+    kycVerifiedAt: { type: Date },
+    kycExpiresAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0 },
     lastFailedLoginAt: Date,
     passwordResetToken: { type: String, select: false },

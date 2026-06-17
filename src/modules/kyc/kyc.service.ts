@@ -62,6 +62,16 @@ const summarize = (user: IUser): KycSummary => ({
   })),
 });
 
+/**
+ * Returns true only if the user's KYC is currently valid — i.e. status is
+ * `verified` AND the verification has not expired (or no expiry is set).
+ */
+export const isKycValid = (user: Pick<IUser, "kycStatus" | "kycExpiresAt">): boolean => {
+  if (user.kycStatus !== "verified") return false;
+  if (!user.kycExpiresAt) return true;
+  return user.kycExpiresAt > new Date();
+};
+
 /** A user submits private KYC documents; their KYC moves to pending.
  *  If the user is resubmitting after a rejection the audit action is
  *  `user.kyc_resubmitted` instead of `user.kyc_submitted`.
@@ -193,6 +203,7 @@ export const reviewKyc = async (
 
   if (decision === "approve") {
     user.kycStatus = "verified";
+    user.kycVerifiedAt = new Date();
     user.accountStatus = "active";
   } else {
     user.kycStatus = "rejected";
