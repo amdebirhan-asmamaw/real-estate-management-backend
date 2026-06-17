@@ -62,6 +62,19 @@ export const listAdminsSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
+// ─── Super Admin: Override Compliance Case ───────────────────────────────────
+
+export const overrideComplianceCaseSchema = Joi.object({
+  status: Joi.string()
+    .valid("resolved", "dismissed")
+    .required()
+    .messages({ "any.only": "Override status must be resolved or dismissed" }),
+  reason: Joi.string().min(10).max(2000).required().messages({
+    "string.min": "Reason must be at least 10 characters",
+    "any.required": "A reason is required for a compliance override",
+  }),
+});
+
 // ─── Input Types ────────────────────────────────────────────────────────────────
 
 export type CreateAdminInput = {
@@ -87,4 +100,9 @@ export type ListAdminsQuery = {
   status?: AccountStatus;
   page: number;
   limit: number;
+};
+
+export type OverrideComplianceCaseInput = {
+  status: "resolved" | "dismissed";
+  reason: string;
 };

@@ -20,6 +20,8 @@ export const AUDIT_ACTIONS = [
   "admin.blocked_user",
   "admin.suspended_admin",
   "admin.reactivated_admin",
+  "admin.restored_user",
+  "admin.override_decision",
   // KYC
   "user.kyc_submitted",
   "user.kyc_resubmitted",
