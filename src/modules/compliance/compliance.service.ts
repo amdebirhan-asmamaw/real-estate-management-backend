@@ -9,6 +9,7 @@ import {
   Screening,
 } from "./compliance.model";
 import { User } from "../auth/auth.model";
+import { Listing } from "../listings/listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
@@ -16,6 +17,7 @@ import type {
   BrokerLicenseInput,
   ComplianceCaseQuery,
   CreateScreeningInput,
+  FlagCaseInput,
   ReviewBrokerLicenseInput,
   UpdateComplianceCaseInput,
 } from "./compliance.validation";
@@ -328,4 +330,58 @@ export const reviewBrokerLicense = async (
   });
 
   return license;
+};
+
+// ─── Admin Flag (B2) ──────────────────────────────────────────────────────────
+
+/**
+ * Opens a ComplianceCase from an explicit admin flag action.
+ * For targetType "listing", the listing's owner is resolved as subjectUser so
+ * the notification reaches them. For other target types the adminId is recorded
+ * as actor in the audit log but no subjectUser notification is sent unless a
+ * direct user lookup is possible.
+ */
+export const adminFlagCase = async (
+  input: FlagCaseInput,
+  adminId: string,
+  adminRole: string,
+) => {
+  let subjectUserId: string | undefined;
+
+  if (input.targetType === "listing") {
+    const listing = await Listing.findById(input.targetId).select("createdBy");
+    if (!listing) throw new AppError("Listing not found", StatusCodes.NOT_FOUND);
+    subjectUserId = listing.createdBy.toString();
+  } else if (input.targetType === "user") {
+    const user = await User.findById(input.targetId).select("_id");
+    if (!user) throw new AppError("User not found", StatusCodes.NOT_FOUND);
+    subjectUserId = user.id as string;
+  }
+
+  const complianceCase = await openCase({
+    type: input.targetType as ComplianceCaseType,
+    severity: input.severity as ComplianceSeverity,
+    title: input.title,
+    description: input.description,
+    subjectUser: subjectUserId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    metadata: { reason: "suspicious", flaggedBy: adminId },
+  });
+
+  // Explicit admin audit (separate from the system-actor audit inside openCase).
+  await audit.record({
+    actor: adminId,
+    actorRole: adminRole,
+    action: "compliance.case_created",
+    targetType: "compliance",
+    targetId: complianceCase.id as string,
+    metadata: {
+      targetType: input.targetType,
+      targetId: input.targetId,
+      severity: input.severity,
+    },
+  });
+
+  return complianceCase;
 };
