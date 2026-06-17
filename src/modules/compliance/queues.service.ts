@@ -3,13 +3,11 @@
  *
  * Each function returns a paginated { items, total, page, limit } snapshot
  * without schema changes — all queries run against existing models.
- *
- * Extension point: Phase C will add a `purchasesQueue` for disputed purchase
- * transactions by querying PurchaseTransaction with status "disputed".
  */
 import { User } from "../auth/auth.model";
 import { Listing } from "../listings/listing.model";
 import { Lease } from "../leases/lease.model";
+import { PurchaseTransaction } from "../purchaseTransactions/purchaseTransaction.model";
 import { ComplianceCase } from "./compliance.model";
 
 export interface QueuePage<T> {
@@ -91,23 +89,43 @@ export const certificatesQueue = async (
 };
 
 // ─── Disputes Queue ───────────────────────────────────────────────────────────
-// Leases with status = "disputed".
-// Phase C extension point: add purchaseTransactionDisputesQueue here for
-// PurchaseTransaction records with status = "disputed".
+// Union of disputed leases and disputed purchase transactions.
+// Each item carries a `kind` field ("lease" | "purchase_transaction") so
+// clients can discriminate between the two types in the response.
 
 export const disputesQueue = async (
   q: QueueQuery,
 ): Promise<QueuePage<unknown>> => {
   const filter = { status: "disputed" };
   const skip = (q.page - 1) * q.limit;
-  const [items, total] = await Promise.all([
+
+  const [leases, leasesTotal, purchases, purchasesTotal] = await Promise.all([
     Lease.find(filter)
       .select("listing landlord tenant status monthlyRent createdAt updatedAt")
       .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(q.limit),
+      .lean(),
     Lease.countDocuments(filter),
+    PurchaseTransaction.find(filter)
+      .select("listing buyer seller status amount currency createdAt updatedAt")
+      .sort({ updatedAt: -1 })
+      .lean(),
+    PurchaseTransaction.countDocuments(filter),
   ]);
+
+  const total = leasesTotal + purchasesTotal;
+
+  // Tag each item with its kind, then sort combined set by updatedAt descending.
+  const tagged = [
+    ...leases.map((l) => ({ ...l, kind: "lease" as const })),
+    ...purchases.map((p) => ({ ...p, kind: "purchase_transaction" as const })),
+  ].sort((a, b) => {
+    const aTime = (a.updatedAt as Date).getTime();
+    const bTime = (b.updatedAt as Date).getTime();
+    return bTime - aTime;
+  });
+
+  const items = tagged.slice(skip, skip + q.limit);
+
   return { items, total, page: q.page, limit: q.limit };
 };
 

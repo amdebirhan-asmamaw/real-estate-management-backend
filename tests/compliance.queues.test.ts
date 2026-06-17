@@ -8,6 +8,7 @@ import app from "../src/app";
 import { User } from "../src/modules/auth/auth.model";
 import { Listing } from "../src/modules/listings/listing.model";
 import { Lease } from "../src/modules/leases/lease.model";
+import { PurchaseTransaction } from "../src/modules/purchaseTransactions/purchaseTransaction.model";
 import { ComplianceCase } from "../src/modules/compliance/compliance.model";
 
 const PASSWORD = "Password123";
@@ -232,8 +233,96 @@ describe("GET /compliance/queues/disputes", () => {
       .set(bearer(adminToken));
 
     expect(res.status).toBe(200);
-    expect(res.body.data.total).toBe(1);
-    expect(res.body.data.items[0].status).toBe("disputed");
+    expect(res.body.data.total).toBeGreaterThanOrEqual(1);
+    const disputedItems = res.body.data.items.filter(
+      (i: { status: string }) => i.status === "disputed",
+    );
+    expect(disputedItems.length).toBeGreaterThanOrEqual(1);
+    // All items must have a kind field.
+    res.body.data.items.forEach((item: { kind: string }) => {
+      expect(["lease", "purchase_transaction"]).toContain(item.kind);
+    });
+  });
+
+  it("includes disputed purchase transactions with kind=purchase_transaction", async () => {
+    const adminToken = await makeAdmin("disputes-pt-admin@example.com");
+    const buyerId = new mongoose.Types.ObjectId();
+    const sellerId = new mongoose.Types.ObjectId();
+    const listingId = new mongoose.Types.ObjectId();
+
+    // Create a disputed purchase transaction.
+    await PurchaseTransaction.create({
+      listing: listingId,
+      offer: new mongoose.Types.ObjectId(),
+      seller: sellerId,
+      buyer: buyerId,
+      amount: 50000,
+      currency: "USD",
+      status: "disputed",
+    });
+
+    // Create a non-disputed purchase transaction (should be excluded).
+    await PurchaseTransaction.create({
+      listing: listingId,
+      offer: new mongoose.Types.ObjectId(),
+      seller: sellerId,
+      buyer: buyerId,
+      amount: 60000,
+      currency: "USD",
+      status: "deposit_received",
+    });
+
+    const res = await request(app)
+      .get("/api/v1/compliance/queues/disputes")
+      .set(bearer(adminToken));
+
+    expect(res.status).toBe(200);
+    const purchaseItems = res.body.data.items.filter(
+      (i: { kind: string }) => i.kind === "purchase_transaction",
+    );
+    expect(purchaseItems.length).toBeGreaterThanOrEqual(1);
+    purchaseItems.forEach((item: { status: string }) => {
+      expect(item.status).toBe("disputed");
+    });
+  });
+
+  it("items from both lease and purchase_transaction appear together in the queue", async () => {
+    const adminToken = await makeAdmin("disputes-combined-admin@example.com");
+    const listingId = new mongoose.Types.ObjectId();
+    const landlordId = new mongoose.Types.ObjectId();
+    const tenantId = new mongoose.Types.ObjectId();
+
+    await Lease.create({
+      listing: listingId,
+      landlord: landlordId,
+      tenant: tenantId,
+      currency: "USD",
+      monthlyRent: 1500,
+      depositAmount: 3000,
+      escrowAmount: 4500,
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      createdBy: landlordId,
+      status: "disputed",
+    });
+    await PurchaseTransaction.create({
+      listing: listingId,
+      offer: new mongoose.Types.ObjectId(),
+      seller: landlordId,
+      buyer: tenantId,
+      amount: 75000,
+      currency: "USD",
+      status: "disputed",
+    });
+
+    const res = await request(app)
+      .get("/api/v1/compliance/queues/disputes")
+      .set(bearer(adminToken));
+
+    expect(res.status).toBe(200);
+    const kinds = res.body.data.items.map((i: { kind: string }) => i.kind);
+    expect(kinds).toContain("lease");
+    expect(kinds).toContain("purchase_transaction");
   });
 });
 
