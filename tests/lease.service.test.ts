@@ -717,5 +717,114 @@ describe("lease.service state machine", () => {
       const disputed = await service.dispute(draft.id, tenant.id, "tenant");
       expect(disputed.status).toBe("disputed");
     });
+
+    it("dispute records openedBy, openedAt, and optional reason on sub-doc", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      const disputed = await service.dispute(
+        draft.id,
+        tenant.id,
+        "tenant",
+        "Payment was late",
+      );
+
+      expect(disputed.dispute).toBeDefined();
+      expect(disputed.dispute!.openedBy?.toString()).toBe(tenant.id);
+      expect(disputed.dispute!.openedAt).toBeInstanceOf(Date);
+      expect(disputed.dispute!.reason).toBe("Payment was late");
+    });
+
+    it("counterparty (landlord) can respond to dispute opened by tenant", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant", "Maintenance not done");
+      const responded = await service.respondToDispute(
+        draft.id,
+        landlord.id,
+        "property_owner",
+        "We completed all maintenance",
+      );
+
+      expect(responded.dispute!.response).toBe("We completed all maintenance");
+      expect(responded.dispute!.respondedBy?.toString()).toBe(landlord.id);
+      expect(responded.dispute!.respondedAt).toBeInstanceOf(Date);
+      expect(responded.status).toBe("disputed");
+    });
+
+    it("the dispute opener cannot respond to their own dispute — throws FORBIDDEN", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant");
+      await expect(
+        service.respondToDispute(draft.id, tenant.id, "tenant", "My own response"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("admin can respond to a dispute regardless of who opened it", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant");
+      const responded = await service.respondToDispute(
+        draft.id,
+        admin.id,
+        "admin",
+        "Admin notes on the dispute",
+      );
+
+      expect(responded.dispute!.response).toBe("Admin notes on the dispute");
+    });
+
+    it("resolveDispute still works after a response has been recorded", async () => {
+      const chain = require("../src/core/blockchain/leaseEscrow.service");
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant", "Deposit issue");
+      await service.respondToDispute(
+        draft.id,
+        landlord.id,
+        "property_owner",
+        "Deposit was handled correctly",
+      );
+      const resolved = await service.resolveDispute(
+        draft.id,
+        { decision: "refund_deposit", note: "Resolved in tenant favour" },
+        admin.id,
+        "admin",
+      );
+
+      expect(chain.refundDeposit).toHaveBeenCalledWith("1");
+      expect(resolved.status).toBe("completed");
+      expect(resolved.escrow.state).toBe("closed");
+    });
   });
 });

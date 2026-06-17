@@ -596,7 +596,12 @@ export const resolveDispute = async (
   await audit.record({
     actor: userId, actorRole: role, action: "lease.dispute_resolved",
     targetType: "lease", targetId: lease.id,
-    metadata: { decision: input.decision, note: input.note, txHash: tx.txHash },
+    metadata: {
+      decision: input.decision,
+      note: input.note,
+      txHash: tx.txHash,
+      disputeResponse: lease.dispute?.response,
+    },
   });
   await notifyLeaseParties(
     lease,
