@@ -316,5 +316,54 @@ describe("purchaseTransaction.service escrow state machine", () => {
         service.resolveDispute(pt.id, { decision: "release" }, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
     });
+
+    // ── unfunded (escrow.state === "none") dispute resolution ─────────────────
+
+    it("unfunded dispute + decision=refund → cancelled, does NOT call saleEscrow", async () => {
+      const chain = require("../src/core/blockchain/saleEscrow.service");
+      chain.refundEscrow.mockClear();
+      chain.releaseEscrow.mockClear();
+
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      // Dispute without funding first (escrow.state stays "none").
+      await service.dispute(pt.id, buyer.id, "tenant", "Unfunded dispute");
+
+      const resolved = await service.resolveDispute(
+        pt.id,
+        { decision: "refund", note: "Resolved off-chain" },
+        admin.id,
+        "admin",
+      );
+
+      expect(resolved.status).toBe("cancelled");
+      // escrow.state must remain "none" — no chain call was made.
+      expect(resolved.escrow.state).toBe("none");
+      expect(chain.refundEscrow).not.toHaveBeenCalled();
+      expect(chain.releaseEscrow).not.toHaveBeenCalled();
+    });
+
+    it("unfunded dispute + decision=release → closing_review, does NOT call saleEscrow", async () => {
+      const chain = require("../src/core/blockchain/saleEscrow.service");
+      chain.refundEscrow.mockClear();
+      chain.releaseEscrow.mockClear();
+
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      // Dispute without funding first (escrow.state stays "none").
+      await service.dispute(pt.id, seller.id, "property_owner", "Unfunded dispute release");
+
+      const resolved = await service.resolveDispute(
+        pt.id,
+        { decision: "release" },
+        admin.id,
+        "admin",
+      );
+
+      // "release" on an unfunded transaction resumes it in closing_review rather
+      // than marking it completed, because there is no on-chain settlement to record.
+      expect(resolved.status).toBe("closing_review");
+      expect(resolved.escrow.state).toBe("none");
+      expect(chain.releaseEscrow).not.toHaveBeenCalled();
+      expect(chain.refundEscrow).not.toHaveBeenCalled();
+    });
   });
 });

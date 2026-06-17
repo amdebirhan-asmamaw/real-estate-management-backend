@@ -539,6 +539,42 @@ export const resolveDispute = async (
   }
 
   let result: IPurchaseTransaction;
+
+  if (pt.escrow.state === "none") {
+    // No escrow was ever funded — settle the dispute off-chain only.
+    // "refund" → cancel the transaction (nothing was taken from the buyer).
+    // "release" → clear the dispute back to closing_review so the admin can
+    //             continue processing the transaction toward completion.
+    const newStatus = input.decision === "refund" ? "cancelled" : "closing_review";
+    const note =
+      input.decision === "refund"
+        ? "Dispute resolved off-chain: transaction cancelled (no escrow to refund)."
+        : "Dispute resolved off-chain: transaction returned to closing_review (no escrow to release).";
+
+    pt.status = newStatus;
+    pt.timeline.push({
+      status: newStatus,
+      note,
+      actor: userId as unknown as Types.ObjectId,
+      createdAt: new Date(),
+    });
+    await pt.save();
+
+    await audit.record({
+      actor: userId, actorRole: role, action: "purchase.dispute_resolved",
+      targetType: "purchase_transaction", targetId: pt.id,
+      metadata: { decision: input.decision, note: input.note, offChain: true },
+    });
+    await notifyPurchaseParties(
+      pt,
+      "Purchase dispute resolved",
+      `Dispute resolved (${input.decision}) without an on-chain escrow call.`,
+      { decision: input.decision },
+    );
+    return pt;
+  }
+
+  // Escrow is funded — delegate to the chain-backed helpers which also audit.
   if (input.decision === "release") {
     result = await release(id, userId, role);
   } else {
