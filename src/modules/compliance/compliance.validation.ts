@@ -55,6 +55,25 @@ export const brokerLicenseQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
+// ─── Queue pagination (B1) ───────────────────────────────────────────────────
+
+export const queueQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20),
+});
+
+// ─── Mark-suspicious flag (B2) ───────────────────────────────────────────────
+
+export const flagCaseSchema = Joi.object({
+  targetType: Joi.string()
+    .valid("listing", "offer", "lease", "user")
+    .required(),
+  targetId: Joi.string().hex().length(24).required(),
+  severity: Joi.string().valid("low", "medium", "high", "critical").required(),
+  title: Joi.string().max(200).required(),
+  description: Joi.string().max(4000).allow(""),
+});
+
 export type ComplianceCaseQuery = {
   status?: string;
   severity?: string;
@@ -93,4 +112,17 @@ export type BrokerLicenseInput = {
 export type ReviewBrokerLicenseInput = {
   decision: "approve" | "reject" | "expire";
   note?: string;
+};
+
+export type QueueQuery = {
+  page: number;
+  limit: number;
+};
+
+export type FlagCaseInput = {
+  targetType: "listing" | "offer" | "lease" | "user";
+  targetId: string;
+  severity: "low" | "medium" | "high" | "critical";
+  title: string;
+  description?: string;
 };
