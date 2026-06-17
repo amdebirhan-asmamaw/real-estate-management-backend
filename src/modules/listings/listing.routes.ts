@@ -73,6 +73,9 @@ listingRouter.get("/:id/duplicates", authenticate, admins, controller.duplicates
 // ─── On-chain title (Increment 2) ──────────────────────────────────────────────
 listingRouter.post("/:id/mint-title", authenticate, admins, controller.mintTitle);
 listingRouter.get("/:id/title", optionalAuthenticate, controller.title);
+listingRouter.get("/:id/certificate", optionalAuthenticate, controller.certificate);
+listingRouter.post("/:id/certificate/suspend", authenticate, admins, validate(titleActionSchema), controller.suspendCertificate);
+listingRouter.post("/:id/certificate/restore", authenticate, admins, validate(titleActionSchema), controller.restoreCertificate);
 listingRouter.post("/:id/title/dispute", authenticate, admins, validate(titleActionSchema), controller.disputeTitle);
 listingRouter.post("/:id/title/clear-dispute", authenticate, admins, validate(titleActionSchema), controller.clearTitleDispute);
 listingRouter.post("/:id/title/revoke", authenticate, admins, validate(titleActionSchema), controller.revokeTitle);

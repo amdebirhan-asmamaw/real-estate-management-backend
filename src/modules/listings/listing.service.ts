@@ -617,6 +617,24 @@ export const addDocuments = async (
     ),
   );
 
+  // Notify all admins that documents have been uploaded and a review is needed.
+  try {
+    const admins = await User.find({ role: { $in: ["admin", "super_admin"] } }).select("_id").lean();
+    await Promise.all(
+      admins.map((a) =>
+        notifications.notify({
+          recipient: a._id.toString(),
+          type: "admin.review_requested",
+          title: "Ownership document review requested",
+          message: `Ownership document(s) have been uploaded for listing "${listing.title}" and require review.`,
+          metadata: { listingId: listing.id, uploadedBy: userId },
+        }),
+      ),
+    );
+  } catch {
+    // best-effort — never surface upload errors
+  }
+
   return listing;
 };
 
@@ -982,6 +1000,73 @@ export const revokeOnChainTitleForListing = async (
   });
 
   return listing;
+};
+
+// ─── Certificate view ───────────────────────────────────────────────────────────
+
+const CERTIFICATE_DISCLAIMER =
+  "Blockchain-backed verification record; not a government-recognized legal title.";
+
+type CertificateStatus = "not_issued" | "issued" | "suspended" | "revoked";
+
+export interface CertificateView {
+  status: CertificateStatus;
+  certificateId: string | null;
+  propertyId: string;
+  ownerWallet: string | null;
+  verificationDate: Date | null;
+  documentHash: string | null;
+  txHash: string | null;
+  contractAddress: string | null;
+  tokenId: string | null;
+  disclaimer: string;
+}
+
+const mapOnChainStatus = (
+  raw: "none" | "active" | "disputed" | "revoked",
+): CertificateStatus => {
+  if (raw === "active") return "issued";
+  if (raw === "disputed") return "suspended";
+  if (raw === "revoked") return "revoked";
+  return "not_issued";
+};
+
+export const getCertificate = async (
+  id: string,
+  userId: string | null,
+  role: string | null,
+): Promise<CertificateView> => {
+  const listing = await getListingById(id, userId, role);
+
+  if (!listing.tokenId) {
+    return {
+      status: "not_issued",
+      certificateId: null,
+      propertyId: listing.id,
+      ownerWallet: null,
+      verificationDate: null,
+      documentHash: null,
+      txHash: null,
+      contractAddress: null,
+      tokenId: null,
+      disclaimer: CERTIFICATE_DISCLAIMER,
+    };
+  }
+
+  const onChain = await chain.getTitle(listing.tokenId);
+
+  return {
+    status: mapOnChainStatus(onChain.status),
+    certificateId: listing.titleCertificateId ?? null,
+    propertyId: listing.id,
+    ownerWallet: onChain.owner,
+    verificationDate: listing.verifiedAt ?? null,
+    documentHash: listing.ownershipDocumentHash ?? null,
+    txHash: listing.blockchainTxHash ?? null,
+    contractAddress: listing.contractAddress ?? null,
+    tokenId: listing.tokenId,
+    disclaimer: CERTIFICATE_DISCLAIMER,
+  };
 };
 
 // ─── Photo management ───────────────────────────────────────────────────────────

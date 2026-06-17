@@ -272,6 +272,47 @@ export const title: Handler = async (req, res, next) => {
   }
 };
 
+export const suspendCertificate: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.disputeOnChainTitle(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Certificate suspended");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const restoreCertificate: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.clearOnChainTitleDispute(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Certificate restored");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const certificate: Handler = async (req, res, next) => {
+  try {
+    const info = await service.getCertificate(
+      req.params.id,
+      req.user?.userId ?? null,
+      req.user?.role ?? null,
+    );
+    sendSuccess(res, info, "Certificate view");
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const disputeTitle: Handler = async (req, res, next) => {
   try {
     const listing = await service.disputeOnChainTitle(
