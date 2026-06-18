@@ -162,11 +162,16 @@ const userSchema = new Schema<IUser>(
     },
     profileImage: { type: String, trim: true },
     // Groundwork for the later "mint to owner wallet" upgrade (custodial today).
+    // unique + sparse: two users cannot share a wallet; null/absent is allowed.
+    // WARNING: before this index builds in prod any pre-existing duplicate
+    // walletAddress values must be cleaned up or the index creation will fail.
     walletAddress: {
       type: String,
       lowercase: true,
       trim: true,
       match: [/^0x[a-fA-F0-9]{40}$/, "Please provide a valid wallet address"],
+      unique: true,
+      sparse: true,
     },
     walletStatus: {
       type: String,
