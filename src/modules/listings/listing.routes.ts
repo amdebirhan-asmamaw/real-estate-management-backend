@@ -22,6 +22,7 @@ import {
   photoReorderSchema,
   setCoverSchema,
   titleActionSchema,
+  neighborhoodAnalyticsSchema,
 } from "./listing.validation";
 import {
   maintenanceRecordQuerySchema,
@@ -41,6 +42,12 @@ listingRouter.get(
   "/clusters",
   validate(clusterSchema, "query"),
   controller.clusters,
+);
+listingRouter.get(
+  "/analytics/neighborhood",
+  optionalAuthenticate,
+  validate(neighborhoodAnalyticsSchema, "query"),
+  controller.neighborhoodAnalytics,
 );
 listingRouter.get("/mine", authenticate, managers, controller.mine);
 listingRouter.get(

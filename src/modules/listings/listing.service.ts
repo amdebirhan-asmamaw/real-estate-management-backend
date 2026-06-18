@@ -1364,3 +1364,65 @@ export const adminDashboardStats = async (): Promise<AdminListingStats> => {
 
   return { total, byStatus, byVerification, pendingReview };
 };
+
+// ─── Neighborhood analytics ─────────────────────────────────────────────────────
+
+export interface NeighborhoodStat {
+  city: string;
+  region?: string;
+  count: number;
+  avgPrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  avgMonthlyRent: number | null;
+  availability: Record<string, number>;
+}
+
+export interface NeighborhoodAnalyticsQuery {
+  region?: string;
+}
+
+/** Aggregates published listings grouped by city (and optionally region). */
+export const neighborhoodAnalytics = async (
+  q: NeighborhoodAnalyticsQuery,
+): Promise<NeighborhoodStat[]> => {
+  const match: FilterQuery<IListing> = { status: "published" };
+  if (q.region) match["address.region"] = q.region;
+
+  const rows = await Listing.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: { city: "$address.city", region: "$address.region" },
+        count: { $sum: 1 },
+        avgPrice: { $avg: "$price" },
+        minPrice: { $min: "$price" },
+        maxPrice: { $max: "$price" },
+        avgMonthlyRent: { $avg: "$monthlyRent" },
+        availabilityStatuses: { $push: "$availabilityStatus" },
+      },
+    },
+    { $sort: { count: -1 } },
+  ]);
+
+  return rows.map((row) => {
+    const availability: Record<string, number> = {};
+    for (const s of row.availabilityStatuses as string[]) {
+      availability[s] = (availability[s] ?? 0) + 1;
+    }
+    return {
+      city: (row._id as { city?: string }).city ?? "Unknown",
+      region: (row._id as { region?: string }).region,
+      count: row.count as number,
+      avgPrice:
+        row.avgPrice != null ? Math.round(row.avgPrice as number) : null,
+      minPrice: row.minPrice != null ? (row.minPrice as number) : null,
+      maxPrice: row.maxPrice != null ? (row.maxPrice as number) : null,
+      avgMonthlyRent:
+        row.avgMonthlyRent != null
+          ? Math.round(row.avgMonthlyRent as number)
+          : null,
+      availability,
+    };
+  });
+};

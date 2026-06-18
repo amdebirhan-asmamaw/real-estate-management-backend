@@ -16,6 +16,7 @@ import type {
   TransitionInput,
   DocumentReviewInput,
   AdminListQuery,
+  NeighborhoodAnalyticsQuery,
 } from "./listing.validation";
 import type { DocumentType } from "./listing.model";
 
@@ -436,6 +437,17 @@ export const adminStats: Handler = async (_req, res, next) => {
   try {
     const stats = await service.adminDashboardStats();
     sendSuccess(res, stats, "Admin listing stats");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const neighborhoodAnalytics: Handler = async (req, res, next) => {
+  try {
+    const stats = await service.neighborhoodAnalytics(
+      req.query as unknown as NeighborhoodAnalyticsQuery,
+    );
+    sendSuccess(res, stats, "Neighborhood analytics");
   } catch (error) {
     next(error);
   }

@@ -251,6 +251,10 @@ export const clusterSchema = Joi.object({
   ),
 });
 
+export const neighborhoodAnalyticsSchema = Joi.object({
+  region: Joi.string().max(200).allow(""),
+});
+
 export const adminListSchema = Joi.object({
   status: Joi.string().valid(
     "draft",
@@ -375,4 +379,8 @@ export type AdminListQuery = {
   propertyType?: string;
   page: number;
   limit: number;
+};
+
+export type NeighborhoodAnalyticsQuery = {
+  region?: string;
 };
