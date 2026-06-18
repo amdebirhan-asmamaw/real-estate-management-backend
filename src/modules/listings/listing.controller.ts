@@ -11,6 +11,7 @@ import { sendSuccess, sendCreated } from "../../core/utils/response";
 import * as listingAnalytics from "../listingAnalytics/listingAnalytics.service";
 import type {
   CreateListingInput,
+  ClusterQuery,
   DiscoveryQuery,
   TransitionInput,
   DocumentReviewInput,
@@ -100,6 +101,15 @@ export const discover: Handler = async (req, res, next) => {
       req.query as unknown as DiscoveryQuery,
     );
     sendSuccess(res, result, "Discovery results");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clusters: Handler = async (req, res, next) => {
+  try {
+    const result = await service.clusters(req.query as unknown as ClusterQuery);
+    sendSuccess(res, result, "Listing clusters");
   } catch (error) {
     next(error);
   }

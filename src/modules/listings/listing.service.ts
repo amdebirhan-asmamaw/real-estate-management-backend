@@ -19,6 +19,7 @@ import type {
   CreateListingInput,
   TransitionInput,
   DiscoveryQuery,
+  ClusterQuery,
   AdminListQuery,
 } from "./listing.validation";
 
@@ -476,6 +477,93 @@ export const discover = async (
   ]);
 
   return { items, total, page: q.page, limit: q.limit };
+};
+
+export interface ListingCluster {
+  id: string;
+  count: number;
+  center: { type: "Point"; coordinates: [number, number] };
+  listingIds: string[];
+  minPrice?: number;
+  maxPrice?: number;
+}
+
+export const clusters = async (q: ClusterQuery): Promise<ListingCluster[]> => {
+  const filter: FilterQuery<IListing> = {
+    status: "published",
+    location: {
+      $geoWithin: {
+        $box: [
+          [q.swLng, q.swLat],
+          [q.neLng, q.neLat],
+        ],
+      },
+    },
+  };
+  if (q.listingType) filter.listingType = q.listingType;
+  if (q.category) filter.category = q.category;
+  if (q.propertyType) filter.propertyType = q.propertyType;
+  if (q.verifiedOnly) filter.verificationStatus = "verified";
+  if (q.availabilityStatus) filter.availabilityStatus = q.availabilityStatus;
+  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
+    const range: Record<string, number> = {};
+    if (q.minPrice !== undefined) range.$gte = q.minPrice;
+    if (q.maxPrice !== undefined) range.$lte = q.maxPrice;
+    filter.$or = [{ price: range }, { monthlyRent: range }];
+  }
+
+  const listings = await Listing.find(filter)
+    .select("_id location price monthlyRent listingType")
+    .limit(5000)
+    .lean();
+
+  const divisor = Math.max(2, Math.min(128, 2 ** Math.max(1, q.zoom - 8)));
+  const lngStep = Math.max((q.neLng - q.swLng) / divisor, 0.0001);
+  const latStep = Math.max((q.neLat - q.swLat) / divisor, 0.0001);
+  const map = new Map<
+    string,
+    {
+      lngSum: number;
+      latSum: number;
+      count: number;
+      listingIds: string[];
+      prices: number[];
+    }
+  >();
+
+  for (const listing of listings) {
+    const [lng, lat] = listing.location.coordinates;
+    const x = Math.floor((lng - q.swLng) / lngStep);
+    const y = Math.floor((lat - q.swLat) / latStep);
+    const key = `${x}:${y}`;
+    const entry = map.get(key) ?? {
+      lngSum: 0,
+      latSum: 0,
+      count: 0,
+      listingIds: [],
+      prices: [],
+    };
+    entry.lngSum += lng;
+    entry.latSum += lat;
+    entry.count += 1;
+    entry.listingIds.push(String(listing._id));
+    const price =
+      listing.listingType === "sale" ? listing.price : listing.monthlyRent;
+    if (typeof price === "number") entry.prices.push(price);
+    map.set(key, entry);
+  }
+
+  return Array.from(map.entries()).map(([id, entry]) => ({
+    id,
+    count: entry.count,
+    center: {
+      type: "Point",
+      coordinates: [entry.lngSum / entry.count, entry.latSum / entry.count],
+    },
+    listingIds: entry.listingIds,
+    minPrice: entry.prices.length > 0 ? Math.min(...entry.prices) : undefined,
+    maxPrice: entry.prices.length > 0 ? Math.max(...entry.prices) : undefined,
+  }));
 };
 
 export const adminList = async (

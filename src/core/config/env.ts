@@ -72,6 +72,17 @@ const envSchema = Joi.object({
   // Defaults to false — mainnet is blocked unless explicitly opted in to prevent
   // accidental real-money transactions in staging or misconfigured environments.
   ALLOW_MAINNET_ESCROW: Joi.boolean().default(false),
+  // Free geocoding adapter. `mock` is deterministic and test-safe; `nominatim`
+  // uses an OpenStreetMap/Nominatim-compatible HTTP endpoint.
+  GEOCODER_PROVIDER: Joi.string().valid("mock", "nominatim").default("mock"),
+  NOMINATIM_BASE_URL: Joi.string()
+    .uri()
+    .default("https://nominatim.openstreetmap.org"),
+  NOMINATIM_USER_AGENT: Joi.string().default("real-estate-marketplace/1.0"),
+  GEOCODER_CACHE_TTL_HOURS: Joi.number()
+    .integer()
+    .min(1)
+    .default(24 * 30),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -120,6 +131,10 @@ interface Env {
   ESCROW_TOKEN_ADDRESS: string;
   SALE_ESCROW_CONTRACT_ADDRESS: string;
   ALLOW_MAINNET_ESCROW: boolean;
+  GEOCODER_PROVIDER: "mock" | "nominatim";
+  NOMINATIM_BASE_URL: string;
+  NOMINATIM_USER_AGENT: string;
+  GEOCODER_CACHE_TTL_HOURS: number;
 }
 
 const validated = value as Env;

@@ -15,6 +15,7 @@ import {
   updateListingSchema,
   transitionSchema,
   discoverySchema,
+  clusterSchema,
   documentUploadSchema,
   documentReviewSchema,
   photoReorderSchema,
@@ -31,6 +32,11 @@ const admins = authorize("admin", "super_admin");
 
 // ─── Public discovery + read ────────────────────────────────────────────────────
 listingRouter.get("/", validate(discoverySchema, "query"), controller.discover);
+listingRouter.get(
+  "/clusters",
+  validate(clusterSchema, "query"),
+  controller.clusters,
+);
 listingRouter.get("/mine", authenticate, managers, controller.mine);
 listingRouter.get(
   "/dashboard",
