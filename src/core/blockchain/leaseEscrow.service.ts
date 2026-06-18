@@ -175,6 +175,7 @@ const call = async (
   method: "activate" | "cancel" | "releaseDeposit" | "refundDeposit",
   escrowId: string,
 ): Promise<EscrowTx> => {
+  await assertNotMainnet();
   const { contract } = getContract();
   const tx = await contract[method](escrowId);
   const receipt = await tx.wait();

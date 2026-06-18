@@ -16,6 +16,9 @@
 const mockGetNetwork = jest.fn();
 const mockDecimalsCall = jest.fn();
 const mockOpenAndFund = jest.fn();
+const mockRelease = jest.fn();
+const mockRefund = jest.fn();
+const mockActivate = jest.fn();
 
 jest.mock("ethers", () => {
   const actual = jest.requireActual("ethers") as typeof import("ethers");
@@ -25,6 +28,9 @@ jest.mock("ethers", () => {
     interface = { parseLog: () => null };
     decimals = mockDecimalsCall;
     openAndFund = mockOpenAndFund;
+    release = mockRelease;
+    refund = mockRefund;
+    activate = mockActivate;
   }
 
   class FakeWallet {
@@ -61,6 +67,9 @@ beforeEach(() => {
   mockGetNetwork.mockReset();
   mockDecimalsCall.mockReset();
   mockOpenAndFund.mockReset();
+  mockRelease.mockReset();
+  mockRefund.mockReset();
+  mockActivate.mockReset();
   // Default: Sepolia (not mainnet).
   mockGetNetwork.mockResolvedValue({ chainId: BigInt(11155111) });
 });
@@ -91,6 +100,34 @@ describe("leaseEscrow.getTokenDecimals", () => {
     await leaseEscrow.getTokenDecimals(); // second call — must use cache
 
     expect(mockDecimalsCall).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("leaseEscrow settlement calls mainnet guard", () => {
+  it("blocks activate on mainnet before calling the contract", async () => {
+    mockGetNetwork.mockResolvedValue({ chainId: BigInt(1) });
+
+    await expect(leaseEscrow.activateEscrow("1")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    expect(mockActivate).not.toHaveBeenCalled();
+  });
+});
+
+describe("saleEscrow settlement calls mainnet guard", () => {
+  it("blocks release and refund on mainnet before calling the contract", async () => {
+    mockGetNetwork.mockResolvedValue({ chainId: BigInt(1) });
+
+    await expect(saleEscrow.releaseEscrow("1")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    await expect(saleEscrow.refundEscrow("1")).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    expect(mockRelease).not.toHaveBeenCalled();
+    expect(mockRefund).not.toHaveBeenCalled();
   });
 });
 
