@@ -90,6 +90,11 @@ const envSchema = Joi.object({
   // Signed-URL lifetime in seconds for private (authenticated) Cloudinary assets.
   // Default 300 s (5 min). Must be > 0.
   SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(1).default(300),
+  // Reconciliation job polling interval in milliseconds.
+  // 0 = disabled (default). Set to e.g. 60000 (1 min) in production.
+  // Alternative: use a cron entrypoint (see scripts/reconcile.cron.ts example
+  // in reconcile.job.ts) instead of this in-process scheduler.
+  RECONCILE_INTERVAL_MS: Joi.number().integer().min(0).default(0),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -145,6 +150,7 @@ interface Env {
   MAX_LOGIN_ATTEMPTS: number;
   LOGIN_LOCK_MINUTES: number;
   SIGNED_URL_TTL_SECONDS: number;
+  RECONCILE_INTERVAL_MS: number;
 }
 
 const validated = value as Env;
