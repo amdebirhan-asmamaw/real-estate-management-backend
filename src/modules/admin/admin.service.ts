@@ -1,12 +1,15 @@
 import { StatusCodes } from "http-status-codes";
 import { User, IUser, type UserRole } from "../auth/auth.model";
+import { ComplianceCase } from "../compliance/compliance.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
+import * as authService from "../auth/auth.service";
 import type {
   CreateAdminInput,
-  ListUsersQuery,
   ListAdminsQuery,
+  ListUsersQuery,
+  OverrideComplianceCaseInput,
 } from "./admin.validation";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -39,10 +42,7 @@ const guardStatusChange = (
       StatusCodes.FORBIDDEN,
     );
   }
-  if (
-    target.role === "admin" &&
-    !isSuperAdmin(actorRole)
-  ) {
+  if (target.role === "admin" && !isSuperAdmin(actorRole)) {
     throw new AppError(
       `Only a super admin can ${action} an admin account`,
       StatusCodes.FORBIDDEN,
@@ -167,10 +167,7 @@ export const suspendAdmin = async (
     );
   }
   if (!isAdmin(target.role)) {
-    throw new AppError(
-      "Target user is not an admin",
-      StatusCodes.BAD_REQUEST,
-    );
+    throw new AppError("Target user is not an admin", StatusCodes.BAD_REQUEST);
   }
   if (targetId === actorId) {
     throw new AppError(
@@ -194,7 +191,8 @@ export const suspendAdmin = async (
     recipient: targetId,
     type: "account.suspended",
     title: "Account suspended",
-    message: "Your admin account has been suspended. Contact your super admin for details.",
+    message:
+      "Your admin account has been suspended. Contact your super admin for details.",
   });
 
   return toUserDetail(target);
@@ -214,10 +212,7 @@ export const reactivateAdmin = async (
 
   const target = await findUserOr404(targetId);
   if (!isAdmin(target.role)) {
-    throw new AppError(
-      "Target user is not an admin",
-      StatusCodes.BAD_REQUEST,
-    );
+    throw new AppError("Target user is not an admin", StatusCodes.BAD_REQUEST);
   }
   if (target.accountStatus !== "suspended") {
     throw new AppError(
@@ -274,7 +269,10 @@ export const listUsers = async (
 
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([
-    User.find(filter).sort({ [sortField]: sortOrder }).skip(skip).limit(query.limit),
+    User.find(filter)
+      .sort({ [sortField]: sortOrder })
+      .skip(skip)
+      .limit(query.limit),
     User.countDocuments(filter),
   ]);
 
@@ -302,7 +300,10 @@ export const suspendUser = async (
   guardStatusChange(target, actorRole, "suspend");
 
   if (targetId === actorId) {
-    throw new AppError("Cannot suspend your own account", StatusCodes.BAD_REQUEST);
+    throw new AppError(
+      "Cannot suspend your own account",
+      StatusCodes.BAD_REQUEST,
+    );
   }
   if (target.accountStatus === "suspended") {
     throw new AppError("User is already suspended", StatusCodes.BAD_REQUEST);
@@ -359,10 +360,29 @@ export const reactivateUser = async (
     recipient: targetId,
     type: "account.reactivated",
     title: "Account reactivated",
-    message: "Your account has been reactivated. You may now use the platform again.",
+    message:
+      "Your account has been reactivated. You may now use the platform again.",
   });
 
   return toUserDetail(target);
+};
+
+export const revokeUserWallet = async (
+  targetId: string,
+  _actorId: string,
+  actorRole: string,
+): Promise<ReturnType<typeof toUserDetail>> => {
+  const target = await findUserOr404(targetId);
+  guardStatusChange(target, actorRole, "revoke wallet for");
+
+  // Delegates escrow guard + state update + audit to authService.revokeWallet.
+  // authService records the audit action under the target's own identity;
+  // the admin action is reflected via guardStatusChange above.
+  await authService.revokeWallet(targetId);
+
+  // Re-fetch to return a fresh snapshot after the wallet was cleared.
+  const updated = await findUserOr404(targetId);
+  return toUserDetail(updated);
 };
 
 export const blockUser = async (
@@ -374,7 +394,10 @@ export const blockUser = async (
   guardStatusChange(target, actorRole, "block");
 
   if (targetId === actorId) {
-    throw new AppError("Cannot block your own account", StatusCodes.BAD_REQUEST);
+    throw new AppError(
+      "Cannot block your own account",
+      StatusCodes.BAD_REQUEST,
+    );
   }
   if (target.accountStatus === "blocked") {
     throw new AppError("User is already blocked", StatusCodes.BAD_REQUEST);
@@ -399,4 +422,114 @@ export const blockUser = async (
   });
 
   return toUserDetail(target);
+};
+
+// ─── Super Admin: Restore User (B3) ─────────────────────────────────────────
+
+/**
+ * Restores a blocked or suspended user to active status.
+ * Super admin only — prevents misuse of a more powerful tool than reactivate.
+ */
+export const restoreUser = async (
+  targetId: string,
+  actorId: string,
+  actorRole: string,
+): Promise<ReturnType<typeof toUserDetail>> => {
+  if (!isSuperAdmin(actorRole)) {
+    throw new AppError(
+      "Only a super admin can restore blocked or suspended users",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+
+  const target = await findUserOr404(targetId);
+
+  if (
+    target.accountStatus !== "blocked" &&
+    target.accountStatus !== "suspended"
+  ) {
+    throw new AppError(
+      "Only blocked or suspended accounts can be restored",
+      StatusCodes.BAD_REQUEST,
+    );
+  }
+
+  const previousStatus = target.accountStatus;
+  target.accountStatus = "active";
+  await target.save();
+
+  await audit.record({
+    actor: actorId,
+    actorRole,
+    action: "admin.restored_user",
+    targetType: "user",
+    targetId,
+    metadata: { previousStatus },
+  });
+
+  await notifications.notify({
+    recipient: targetId,
+    type: "account.reactivated",
+    title: "Account restored",
+    message:
+      "Your account has been restored by the platform administrator. You may now use the platform.",
+  });
+
+  return toUserDetail(target);
+};
+
+// ─── Super Admin: Override Compliance Case (B3) ──────────────────────────────
+
+/**
+ * Force-sets a compliance case to a terminal status (resolved | dismissed) with
+ * a mandatory reason. Super admin only — regular admins must use updateCase.
+ */
+export const overrideComplianceCase = async (
+  caseId: string,
+  input: OverrideComplianceCaseInput,
+  actorId: string,
+  actorRole: string,
+) => {
+  if (!isSuperAdmin(actorRole)) {
+    throw new AppError(
+      "Only a super admin can override compliance cases",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+
+  const complianceCase = await ComplianceCase.findById(caseId);
+  if (!complianceCase) {
+    throw new AppError("Compliance case not found", StatusCodes.NOT_FOUND);
+  }
+
+  if (
+    complianceCase.status === "resolved" ||
+    complianceCase.status === "dismissed"
+  ) {
+    throw new AppError(
+      "Compliance case is already in a terminal status",
+      StatusCodes.BAD_REQUEST,
+    );
+  }
+
+  complianceCase.status = input.status;
+  complianceCase.resolution = input.reason;
+  complianceCase.notes.push({
+    author:
+      actorId as unknown as (typeof complianceCase.notes)[number]["author"],
+    body: `[Super-admin override] ${input.reason}`,
+    createdAt: new Date(),
+  });
+  await complianceCase.save();
+
+  await audit.record({
+    actor: actorId,
+    actorRole,
+    action: "admin.override_decision",
+    targetType: "compliance",
+    targetId: caseId,
+    metadata: { status: input.status, reason: input.reason },
+  });
+
+  return complianceCase;
 };

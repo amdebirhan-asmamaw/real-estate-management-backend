@@ -6,7 +6,28 @@ import { logger } from "./core/utils/logger";
 
 let server: Server;
 
+/**
+ * Emit a visible warning when the server starts in production with a raw
+ * MINTER_PRIVATE_KEY env var.  Using a plain private key in production is a
+ * security risk — a managed signer (KMS, HSM, or an external signing service)
+ * should be used instead.  See docs/SECURITY.md §1 for the upgrade path.
+ *
+ * This is advisory-only: it does not crash the server.
+ */
+const warnIfRawPrivateKeyInProduction = (): void => {
+  if (env.isProduction && env.MINTER_PRIVATE_KEY) {
+    logger.warn(
+      "SECURITY WARNING: MINTER_PRIVATE_KEY is set as a raw private key in " +
+        "production. This is a high-value secret — consider replacing it with " +
+        "a managed signer (AWS KMS, GCP KMS, HashiCorp Vault, or HSM). " +
+        "See docs/SECURITY.md for the recommended upgrade path.",
+    );
+  }
+};
+
 const start = async (): Promise<void> => {
+  warnIfRawPrivateKeyInProduction();
+
   try {
     await connectDatabase();
   } catch (error) {
@@ -15,7 +36,9 @@ const start = async (): Promise<void> => {
   }
 
   server = app.listen(env.PORT, () => {
-    logger.info(`🚀 Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
+    logger.info(
+      `🚀 Server running in ${env.NODE_ENV} mode on port ${env.PORT}`,
+    );
   });
 };
 

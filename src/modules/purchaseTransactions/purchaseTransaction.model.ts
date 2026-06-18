@@ -18,6 +18,19 @@ export interface IPurchaseTimelineEvent {
   createdAt: Date;
 }
 
+export type PurchaseEscrowState = "none" | "funded" | "released" | "refunded";
+
+export interface IPurchaseEscrow {
+  escrowId?: string;
+  contractAddress?: string;
+  token?: string;
+  state: PurchaseEscrowState;
+  fundTxHash?: string;
+  settleTxHash?: string;
+  buyerWallet?: string;
+  sellerWallet?: string;
+}
+
 export interface IPurchaseTransaction extends Document {
   listing: Types.ObjectId;
   offer: Types.ObjectId;
@@ -27,12 +40,20 @@ export interface IPurchaseTransaction extends Document {
   currency: string;
   status: PurchaseTransactionStatus;
   depositAmount?: number;
+  escrow: IPurchaseEscrow;
+  termsHash?: string;
   closingChecklist: {
     purchaseAgreement: boolean;
     inspection: boolean;
     financing: boolean;
     titleReview: boolean;
     settlementStatement: boolean;
+  };
+  dispute?: {
+    openedBy?: Types.ObjectId;
+    openedAt?: Date;
+    reason?: string;
+    note?: string;
   };
   timeline: Types.DocumentArray<IPurchaseTimelineEvent>;
   createdAt: Date;
@@ -60,6 +81,24 @@ const timelineEventSchema = new Schema<IPurchaseTimelineEvent>(
     createdAt: { type: Date, default: () => new Date() },
   },
   { _id: true },
+);
+
+const purchaseEscrowSchema = new Schema<IPurchaseEscrow>(
+  {
+    escrowId: { type: String },
+    contractAddress: { type: String },
+    token: { type: String },
+    state: {
+      type: String,
+      enum: ["none", "funded", "released", "refunded"],
+      default: "none",
+    },
+    fundTxHash: { type: String },
+    settleTxHash: { type: String },
+    buyerWallet: { type: String },
+    sellerWallet: { type: String },
+  },
+  { _id: false },
 );
 
 const purchaseTransactionSchema = new Schema<IPurchaseTransaction>(
@@ -107,6 +146,14 @@ const purchaseTransactionSchema = new Schema<IPurchaseTransaction>(
       index: true,
     },
     depositAmount: { type: Number, min: 0 },
+    escrow: { type: purchaseEscrowSchema, default: () => ({ state: "none" }) },
+    termsHash: { type: String },
+    dispute: {
+      openedBy: { type: Schema.Types.ObjectId, ref: "User" },
+      openedAt: { type: Date },
+      reason: { type: String, maxlength: 2000 },
+      note: { type: String, maxlength: 2000 },
+    },
     closingChecklist: {
       purchaseAgreement: { type: Boolean, default: false },
       inspection: { type: Boolean, default: false },

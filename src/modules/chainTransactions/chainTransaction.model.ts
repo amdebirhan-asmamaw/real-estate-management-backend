@@ -2,11 +2,17 @@ import { Schema, model, Document, Types } from "mongoose";
 
 export const CHAIN_TRANSACTION_OPERATIONS = [
   "title.mint",
+  "title.dispute",
+  "title.clear_dispute",
+  "title.revoke",
   "lease_escrow.open_and_fund",
   "lease_escrow.activate",
   "lease_escrow.cancel",
   "lease_escrow.release_deposit",
   "lease_escrow.refund_deposit",
+  "sale_escrow.open_and_fund",
+  "sale_escrow.release",
+  "sale_escrow.refund",
 ] as const;
 
 export const CHAIN_TRANSACTION_STATUSES = [
@@ -24,7 +30,10 @@ export type ChainTransactionOperation =
   (typeof CHAIN_TRANSACTION_OPERATIONS)[number];
 export type ChainTransactionStatus =
   (typeof CHAIN_TRANSACTION_STATUSES)[number];
-export type ChainTransactionTargetType = "listing" | "lease";
+export type ChainTransactionTargetType =
+  | "listing"
+  | "lease"
+  | "purchase_transaction";
 
 export interface IChainTransaction extends Document {
   operation: ChainTransactionOperation;
@@ -60,7 +69,7 @@ const chainTransactionSchema = new Schema<IChainTransaction>(
     },
     targetType: {
       type: String,
-      enum: ["listing", "lease"],
+      enum: ["listing", "lease", "purchase_transaction"],
       required: true,
       index: true,
     },

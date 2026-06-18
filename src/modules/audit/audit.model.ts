@@ -12,6 +12,7 @@ export const AUDIT_ACTIONS = [
   "user.profile_updated",
   "user.wallet_linked",
   "user.wallet_unlinked",
+  "user.wallet_revoked",
   // Admin management
   "admin.created_admin",
   "admin.suspended_user",
@@ -19,10 +20,14 @@ export const AUDIT_ACTIONS = [
   "admin.blocked_user",
   "admin.suspended_admin",
   "admin.reactivated_admin",
+  "admin.restored_user",
+  "admin.override_decision",
   // KYC
   "user.kyc_submitted",
+  "user.kyc_resubmitted",
   "user.kyc_approved",
   "user.kyc_rejected",
+  "user.kyc_review_started",
   "user.status_changed",
   // Listing lifecycle
   "listing.created",
@@ -51,12 +56,14 @@ export const AUDIT_ACTIONS = [
   // Lease lifecycle
   "lease.created",
   "lease.proposed",
+  "lease.signed",
   "lease.escrow_funded",
   "lease.activated",
   "lease.cancelled",
   "lease.completed",
   "lease.terminated",
   "lease.disputed",
+  "lease.dispute_responded",
   "lease.dispute_resolved",
   // Compliance
   "compliance.case_created",
@@ -64,6 +71,11 @@ export const AUDIT_ACTIONS = [
   // Purchase transactions
   "purchase_transaction.created",
   "purchase_transaction.updated",
+  "purchase.escrow_funded",
+  "purchase.escrow_released",
+  "purchase.escrow_refunded",
+  "purchase.disputed",
+  "purchase.dispute_resolved",
   // Rental applications
   "rental_application.created",
   "rental_application.reviewed",

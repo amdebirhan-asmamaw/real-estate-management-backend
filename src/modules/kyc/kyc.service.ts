@@ -1,5 +1,10 @@
 import { StatusCodes } from "http-status-codes";
-import { User, IUser, KycDocumentType, AccountStatus } from "../auth/auth.model";
+import {
+  User,
+  IUser,
+  KycDocumentType,
+  AccountStatus,
+} from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import { signedUrl } from "../../core/utils/uploader";
 import * as audit from "../audit/audit.service";
@@ -62,24 +67,45 @@ const summarize = (user: IUser): KycSummary => ({
   })),
 });
 
-/** A user submits private KYC documents; their KYC moves to pending. */
+/**
+ * Returns true only if the user's KYC is currently valid — i.e. status is
+ * `verified` AND the verification has not expired (or no expiry is set).
+ */
+export const isKycValid = (
+  user: Pick<IUser, "kycStatus" | "kycExpiresAt">,
+): boolean => {
+  if (user.kycStatus !== "verified") return false;
+  if (!user.kycExpiresAt) return true;
+  return user.kycExpiresAt > new Date();
+};
+
+/** A user submits private KYC documents; their KYC moves to pending.
+ *  If the user is resubmitting after a rejection the audit action is
+ *  `user.kyc_resubmitted` instead of `user.kyc_submitted`.
+ */
 export const submitKyc = async (
   userId: string,
   docs: NewKycDocument[],
 ): Promise<KycSummary> => {
   const user = await findUserOr404(userId);
+  const isResubmission =
+    user.kycStatus === "rejected" || user.kycStatus === "expired";
+
   docs.forEach((d) =>
     user.kycDocuments.push({ ...d, status: "pending", uploadedAt: new Date() }),
   );
   user.kycStatus = "pending";
   await user.save();
 
+  const auditAction = isResubmission
+    ? "user.kyc_resubmitted"
+    : "user.kyc_submitted";
   await Promise.all(
     docs.map((d) =>
       audit.record({
         actor: userId,
         actorRole: user.role,
-        action: "user.kyc_submitted",
+        action: auditAction,
         targetType: "user",
         targetId: userId,
         metadata: { type: d.type },
@@ -116,8 +142,46 @@ export const getKycDocumentUrl = async (
 };
 
 /**
+ * An admin moves a user's KYC from `pending` → `under_review` to signal
+ * that review has started. Approve/reject still work from either state.
+ */
+export const startKycReview = async (
+  targetUserId: string,
+  adminId: string,
+  role: string | null,
+): Promise<KycSummary> => {
+  if (!isAdminRole(role)) {
+    throw new AppError(
+      "Only an administrator can start a KYC review",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  const user = await findUserOr404(targetUserId);
+  if (user.kycStatus !== "pending") {
+    throw new AppError(
+      "KYC must be in pending status to start review",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  user.kycStatus = "under_review";
+  await user.save();
+
+  await audit.record({
+    actor: adminId,
+    actorRole: role ?? "admin",
+    action: "user.kyc_review_started",
+    targetType: "user",
+    targetId: targetUserId,
+  });
+
+  return summarize(user);
+};
+
+/**
  * An admin reviews a user's KYC. Approval verifies the user and activates the
  * account; rejection marks KYC rejected (the user may resubmit while pending).
+ * Works from either `pending` or `under_review` status.
  */
 export const reviewKyc = async (
   targetUserId: string,
@@ -134,6 +198,13 @@ export const reviewKyc = async (
   }
   const user = await findUserOr404(targetUserId);
 
+  if (user.kycStatus !== "pending" && user.kycStatus !== "under_review") {
+    throw new AppError(
+      "KYC must be in pending or under_review status to be reviewed",
+      StatusCodes.CONFLICT,
+    );
+  }
+
   const docStatus = decision === "approve" ? "approved" : "rejected";
   user.kycDocuments.forEach((d) => {
     if (d.status === "pending") d.status = docStatus;
@@ -142,6 +213,7 @@ export const reviewKyc = async (
 
   if (decision === "approve") {
     user.kycStatus = "verified";
+    user.kycVerifiedAt = new Date();
     user.accountStatus = "active";
   } else {
     user.kycStatus = "rejected";
@@ -218,7 +290,10 @@ export const setAccountStatus = async (
   });
 
   // Notify the user about their status change
-  const statusMessages: Record<string, { type: string; title: string; message: string }> = {
+  const statusMessages: Record<
+    string,
+    { type: string; title: string; message: string }
+  > = {
     suspended: {
       type: "account.suspended",
       title: "Account suspended",
@@ -232,7 +307,8 @@ export const setAccountStatus = async (
     active: {
       type: "account.reactivated",
       title: "Account reactivated",
-      message: "Your account has been reactivated. You may now use the platform again.",
+      message:
+        "Your account has been reactivated. You may now use the platform again.",
     },
   };
 
@@ -240,7 +316,9 @@ export const setAccountStatus = async (
   if (notification) {
     await notifications.notify({
       recipient: targetUserId,
-      type: notification.type as Parameters<typeof notifications.notify>[0]["type"],
+      type: notification.type as Parameters<
+        typeof notifications.notify
+      >[0]["type"],
       title: notification.title,
       message: notification.message,
     });

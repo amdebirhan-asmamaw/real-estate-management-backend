@@ -1,5 +1,10 @@
 import { StatusCodes } from "http-status-codes";
-import { Listing, IListing, ListingStatus, DocumentType } from "./listing.model";
+import {
+  Listing,
+  IListing,
+  ListingStatus,
+  DocumentType,
+} from "./listing.model";
 import { User } from "../auth/auth.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
@@ -69,7 +74,10 @@ export const getListingById = async (
   role: string | null,
 ): Promise<IListing> => {
   const listing = await findOr404(id);
-  if (listing.status !== "published" && !isOwnerOrAdmin(listing, userId, role)) {
+  if (
+    listing.status !== "published" &&
+    !isOwnerOrAdmin(listing, userId, role)
+  ) {
     // Don't leak the existence of unpublished listings.
     throw new AppError("Listing not found", StatusCodes.NOT_FOUND);
   }
@@ -309,7 +317,8 @@ export const transition = async (
 
   // Apply side effects per action.
   listing.status = rule.to;
-  listing.review.reviewedBy = userId as unknown as IListing["review"]["reviewedBy"];
+  listing.review.reviewedBy =
+    userId as unknown as IListing["review"]["reviewedBy"];
   listing.review.reviewedAt = new Date();
 
   if (input.action === "reject") {
@@ -382,7 +391,12 @@ export const transition = async (
 
 export const discover = async (
   q: DiscoveryQuery,
-): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
+): Promise<{
+  items: IListing[];
+  total: number;
+  page: number;
+  limit: number;
+}> => {
   const filter: FilterQuery<IListing> = { status: "published" };
 
   // Full-text search on title + description.
@@ -454,7 +468,8 @@ export const discover = async (
   const skip = (q.page - 1) * q.limit;
 
   // countDocuments rejects $near, so radius counts strip the geo clause.
-  const countFilter = q.lng !== undefined ? { ...filter, location: undefined } : filter;
+  const countFilter =
+    q.lng !== undefined ? { ...filter, location: undefined } : filter;
   const [items, total] = await Promise.all([
     Listing.find(filter).sort(sortOption).skip(skip).limit(q.limit),
     Listing.countDocuments(countFilter),
@@ -465,7 +480,12 @@ export const discover = async (
 
 export const adminList = async (
   q: AdminListQuery,
-): Promise<{ items: IListing[]; total: number; page: number; limit: number }> => {
+): Promise<{
+  items: IListing[];
+  total: number;
+  page: number;
+  limit: number;
+}> => {
   const filter: FilterQuery<IListing> = {};
   if (q.status) filter.status = q.status;
   if (q.verificationStatus) filter.verificationStatus = q.verificationStatus;
@@ -571,7 +591,10 @@ export const removePhoto = async (
 
   const exists = listing.photos.some((p) => p.publicId === publicId);
   if (!exists) {
-    throw new AppError("Photo not found on this listing", StatusCodes.NOT_FOUND);
+    throw new AppError(
+      "Photo not found on this listing",
+      StatusCodes.NOT_FOUND,
+    );
   }
 
   listing.photos = listing.photos.filter(
@@ -616,6 +639,26 @@ export const addDocuments = async (
       }),
     ),
   );
+
+  // Notify all admins that documents have been uploaded and a review is needed.
+  try {
+    const admins = await User.find({ role: { $in: ["admin", "super_admin"] } })
+      .select("_id")
+      .lean();
+    await Promise.all(
+      admins.map((a) =>
+        notifications.notify({
+          recipient: a._id.toString(),
+          type: "admin.review_requested",
+          title: "Ownership document review requested",
+          message: `Ownership document(s) have been uploaded for listing "${listing.title}" and require review.`,
+          metadata: { listingId: listing.id, uploadedBy: userId },
+        }),
+      ),
+    );
+  } catch {
+    // best-effort — never surface upload errors
+  }
 
   return listing;
 };
@@ -819,7 +862,11 @@ export const mintTitle = async (
     type: "listing.title_minted",
     title: "Digital title certificate minted",
     message: `A blockchain-backed title certificate has been issued for "${listing.title}".`,
-    metadata: { listingId: listing.id, tokenId: result.tokenId, txHash: result.txHash },
+    metadata: {
+      listingId: listing.id,
+      tokenId: result.tokenId,
+      txHash: result.txHash,
+    },
   });
 
   return listing;
@@ -873,12 +920,34 @@ export const disputeOnChainTitle = async (
   role: string,
 ): Promise<IListing> => {
   if (!isAdmin(role)) {
-    throw new AppError("Only an administrator can dispute a title", StatusCodes.FORBIDDEN);
+    throw new AppError(
+      "Only an administrator can dispute a title",
+      StatusCodes.FORBIDDEN,
+    );
   }
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.disputeTitle(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.dispute",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.disputeTitle(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Sync listing status → suspended if currently published.
   if (listing.status === "published") {
@@ -913,12 +982,34 @@ export const clearOnChainTitleDispute = async (
   role: string,
 ): Promise<IListing> => {
   if (!isAdmin(role)) {
-    throw new AppError("Only an administrator can clear a title dispute", StatusCodes.FORBIDDEN);
+    throw new AppError(
+      "Only an administrator can clear a title dispute",
+      StatusCodes.FORBIDDEN,
+    );
   }
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.clearTitleDispute(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.clear_dispute",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.clearTitleDispute(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Sync listing status → published if currently suspended due to dispute.
   if (listing.status === "suspended") {
@@ -953,12 +1044,34 @@ export const revokeOnChainTitleForListing = async (
   role: string,
 ): Promise<IListing> => {
   if (!isAdmin(role)) {
-    throw new AppError("Only an administrator can revoke a title", StatusCodes.FORBIDDEN);
+    throw new AppError(
+      "Only an administrator can revoke a title",
+      StatusCodes.FORBIDDEN,
+    );
   }
   const listing = await findOr404(id);
   ensureHasMintedTitle(listing);
 
-  const { txHash } = await chain.revokeOnChainTitle(listing.tokenId!, reason);
+  const chainTx = await chainTransactions.begin({
+    operation: "title.revoke",
+    targetType: "listing",
+    targetId: listing.id,
+    createdBy: adminId,
+    metadata: { listingId: listing.id, tokenId: listing.tokenId, reason },
+  });
+
+  let txHash: string;
+  try {
+    ({ txHash } = await chain.revokeOnChainTitle(listing.tokenId!, reason));
+    await chainTransactions.markMined(chainTx.id, {
+      txHash,
+      contractAddress: listing.contractAddress,
+      metadata: { listingId: listing.id, tokenId: listing.tokenId },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(chainTx.id, error);
+    throw error;
+  }
 
   // Revoked titles → archive the listing permanently.
   listing.status = "archived";
@@ -982,6 +1095,73 @@ export const revokeOnChainTitleForListing = async (
   });
 
   return listing;
+};
+
+// ─── Certificate view ───────────────────────────────────────────────────────────
+
+const CERTIFICATE_DISCLAIMER =
+  "Blockchain-backed verification record; not a government-recognized legal title.";
+
+type CertificateStatus = "not_issued" | "issued" | "suspended" | "revoked";
+
+export interface CertificateView {
+  status: CertificateStatus;
+  certificateId: string | null;
+  propertyId: string;
+  ownerWallet: string | null;
+  verificationDate: Date | null;
+  documentHash: string | null;
+  txHash: string | null;
+  contractAddress: string | null;
+  tokenId: string | null;
+  disclaimer: string;
+}
+
+const mapOnChainStatus = (
+  raw: "none" | "active" | "disputed" | "revoked",
+): CertificateStatus => {
+  if (raw === "active") return "issued";
+  if (raw === "disputed") return "suspended";
+  if (raw === "revoked") return "revoked";
+  return "not_issued";
+};
+
+export const getCertificate = async (
+  id: string,
+  userId: string | null,
+  role: string | null,
+): Promise<CertificateView> => {
+  const listing = await getListingById(id, userId, role);
+
+  if (!listing.tokenId) {
+    return {
+      status: "not_issued",
+      certificateId: null,
+      propertyId: listing.id,
+      ownerWallet: null,
+      verificationDate: null,
+      documentHash: null,
+      txHash: null,
+      contractAddress: null,
+      tokenId: null,
+      disclaimer: CERTIFICATE_DISCLAIMER,
+    };
+  }
+
+  const onChain = await chain.getTitle(listing.tokenId);
+
+  return {
+    status: mapOnChainStatus(onChain.status),
+    certificateId: listing.titleCertificateId ?? null,
+    propertyId: listing.id,
+    ownerWallet: onChain.owner,
+    verificationDate: listing.verifiedAt ?? null,
+    documentHash: listing.ownershipDocumentHash ?? null,
+    txHash: listing.blockchainTxHash ?? null,
+    contractAddress: listing.contractAddress ?? null,
+    tokenId: listing.tokenId,
+    disclaimer: CERTIFICATE_DISCLAIMER,
+  };
 };
 
 // ─── Photo management ───────────────────────────────────────────────────────────
@@ -1020,7 +1200,10 @@ export const setCoverPhoto = async (
 
   const exists = listing.photos.some((p) => p.publicId === publicId);
   if (!exists) {
-    throw new AppError("Photo not found on this listing", StatusCodes.NOT_FOUND);
+    throw new AppError(
+      "Photo not found on this listing",
+      StatusCodes.NOT_FOUND,
+    );
   }
 
   listing.photos.forEach((p) => {
@@ -1041,7 +1224,9 @@ export interface OwnerDashboardStats {
 }
 
 /** Aggregated dashboard stats for a property owner. */
-export const ownerDashboard = async (userId: string): Promise<OwnerDashboardStats> => {
+export const ownerDashboard = async (
+  userId: string,
+): Promise<OwnerDashboardStats> => {
   const [statusAgg, inquiryCount] = await Promise.all([
     Listing.aggregate([
       { $match: { createdBy: userId } },
@@ -1070,9 +1255,7 @@ export interface AdminListingStats {
 /** Aggregated listing stats for admin dashboard. */
 export const adminDashboardStats = async (): Promise<AdminListingStats> => {
   const [statusAgg, verificationAgg, pendingReview] = await Promise.all([
-    Listing.aggregate([
-      { $group: { _id: "$status", count: { $sum: 1 } } },
-    ]),
+    Listing.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     Listing.aggregate([
       { $group: { _id: "$verificationStatus", count: { $sum: 1 } } },
     ]),

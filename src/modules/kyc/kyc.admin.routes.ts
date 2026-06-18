@@ -16,7 +16,18 @@ userAdminRouter.patch(
   validate(accountStatusSchema),
   controller.adminSetAccountStatus,
 );
-userAdminRouter.get("/users/:id/kyc", authenticate, admins, controller.adminGetUserKyc);
+userAdminRouter.get(
+  "/users/:id/kyc",
+  authenticate,
+  admins,
+  controller.adminGetUserKyc,
+);
+userAdminRouter.post(
+  "/users/:id/kyc/start-review",
+  authenticate,
+  admins,
+  controller.adminStartKycReview,
+);
 userAdminRouter.post(
   "/users/:id/kyc/review",
   authenticate,

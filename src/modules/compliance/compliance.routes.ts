@@ -7,6 +7,8 @@ import {
   brokerLicenseSchema,
   complianceCaseQuerySchema,
   createScreeningSchema,
+  flagCaseSchema,
+  queueQuerySchema,
   reviewBrokerLicenseSchema,
   updateComplianceCaseSchema,
 } from "./compliance.validation";
@@ -57,4 +59,52 @@ complianceRouter.post(
   admins,
   validate(reviewBrokerLicenseSchema),
   controller.reviewBrokerLicense,
+);
+
+// ─── Review Queues (B1) ──────────────────────────────────────────────────────
+
+complianceRouter.get(
+  "/queues/kyc",
+  authenticate,
+  admins,
+  validate(queueQuerySchema, "query"),
+  controller.getKycQueue,
+);
+complianceRouter.get(
+  "/queues/property-verification",
+  authenticate,
+  admins,
+  validate(queueQuerySchema, "query"),
+  controller.getPropertyVerificationQueue,
+);
+complianceRouter.get(
+  "/queues/certificates",
+  authenticate,
+  admins,
+  validate(queueQuerySchema, "query"),
+  controller.getCertificatesQueue,
+);
+complianceRouter.get(
+  "/queues/disputes",
+  authenticate,
+  admins,
+  validate(queueQuerySchema, "query"),
+  controller.getDisputesQueue,
+);
+complianceRouter.get(
+  "/queues/suspicious",
+  authenticate,
+  admins,
+  validate(queueQuerySchema, "query"),
+  controller.getSuspiciousQueue,
+);
+
+// ─── Mark Suspicious / Flag (B2) ────────────────────────────────────────────
+
+complianceRouter.post(
+  "/flag",
+  authenticate,
+  admins,
+  validate(flagCaseSchema),
+  controller.flagCase,
 );

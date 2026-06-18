@@ -8,7 +8,15 @@ export const kycUploadSchema = Joi.object({
 
 export const kycReviewSchema = Joi.object({
   decision: Joi.string().valid("approve", "reject").required(),
-  note: Joi.string().max(2000),
+  note: Joi.string()
+    .max(2000)
+    .when("decision", {
+      is: "reject",
+      then: Joi.required().messages({
+        "any.required": "A rejection reason is required",
+      }),
+      otherwise: Joi.optional(),
+    }),
 });
 
 export const accountStatusSchema = Joi.object({

@@ -42,7 +42,7 @@ const listingInput = {
 
 describe("compliance automation", () => {
   it("opens a KYC compliance case on KYC rejection", async () => {
-    const user = await makeUser("tenant");
+    const user = await makeUser("tenant", { kycStatus: "pending" });
     await kyc.reviewKyc(user.id, "reject", "Document mismatch", adminId, "admin");
 
     const item = await ComplianceCase.findOne({ type: "kyc", subjectUser: user.id });

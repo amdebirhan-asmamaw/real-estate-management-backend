@@ -9,10 +9,13 @@ export const createAdminSchema = Joi.object({
     "string.max": "Name cannot exceed 100 characters",
     "any.required": "Name is required",
   }),
-  email: Joi.string().email({ tlds: { allow: false } }).required().messages({
-    "string.email": "Invalid email address",
-    "any.required": "Email is required",
-  }),
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .required()
+    .messages({
+      "string.email": "Invalid email address",
+      "any.required": "Email is required",
+    }),
   password: Joi.string()
     .min(8)
     .pattern(/[A-Z]/, "uppercase")
@@ -32,17 +35,26 @@ export const createAdminSchema = Joi.object({
 
 export const listUsersSchema = Joi.object({
   search: Joi.string().max(100).allow(""),
-  role: Joi.string().valid(...USER_ROLES).messages({
-    "any.only": `role must be one of ${USER_ROLES.join(", ")}`,
-  }),
+  role: Joi.string()
+    .valid(...USER_ROLES)
+    .messages({
+      "any.only": `role must be one of ${USER_ROLES.join(", ")}`,
+    }),
   status: Joi.string()
     .valid("pending", "active", "suspended", "blocked", "rejected")
     .messages({ "any.only": "Invalid account status filter" }),
   kycStatus: Joi.string()
-    .valid("not_started", "pending", "under_review", "verified", "rejected")
+    .valid(
+      "not_started",
+      "pending",
+      "under_review",
+      "verified",
+      "rejected",
+      "expired",
+    )
     .messages({ "any.only": "Invalid KYC status filter" }),
   walletStatus: Joi.string()
-    .valid("unlinked", "linked")
+    .valid("unlinked", "pending_signature", "linked", "revoked")
     .messages({ "any.only": "Invalid wallet status filter" }),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
@@ -60,6 +72,19 @@ export const listAdminsSchema = Joi.object({
     .messages({ "any.only": "Invalid account status filter" }),
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
+});
+
+// ─── Super Admin: Override Compliance Case ───────────────────────────────────
+
+export const overrideComplianceCaseSchema = Joi.object({
+  status: Joi.string()
+    .valid("resolved", "dismissed")
+    .required()
+    .messages({ "any.only": "Override status must be resolved or dismissed" }),
+  reason: Joi.string().min(10).max(2000).required().messages({
+    "string.min": "Reason must be at least 10 characters",
+    "any.required": "A reason is required for a compliance override",
+  }),
 });
 
 // ─── Input Types ────────────────────────────────────────────────────────────────
@@ -87,4 +112,9 @@ export type ListAdminsQuery = {
   status?: AccountStatus;
   page: number;
   limit: number;
+};
+
+export type OverrideComplianceCaseInput = {
+  status: "resolved" | "dismissed";
+  reason: string;
 };

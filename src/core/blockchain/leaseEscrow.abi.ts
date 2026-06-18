@@ -8,6 +8,8 @@ export const LEASE_ESCROW_ABI = [
   "function refundDeposit(uint256 escrowId)",
   "function escrowState(uint256 escrowId) view returns (uint8)",
   "function getEscrow(uint256 escrowId) view returns (tuple(string leaseId, address landlord, address tenant, address token, uint256 rentAmount, uint256 depositAmount, bytes32 termsHash, uint8 state))",
+  // ERC-20 token helper — read decimals for amount scaling
+  "function decimals() view returns (uint8)",
   "event EscrowFunded(uint256 indexed escrowId, string leaseId, address indexed landlord, address indexed tenant, uint256 rentAmount, uint256 depositAmount)",
   "event RentReleased(uint256 indexed escrowId, address indexed landlord, uint256 amount)",
   "event EscrowRefunded(uint256 indexed escrowId, address indexed tenant, uint256 amount)",
