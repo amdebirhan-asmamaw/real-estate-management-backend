@@ -139,6 +139,24 @@ export const createLease = async (
   const tenant = await User.findById(input.tenantId);
   if (!tenant) throw new AppError("Tenant not found", StatusCodes.NOT_FOUND);
 
+  // ── Overlap guard ────────────────────────────────────────────────────────
+  // Reject if there is already a non-terminal lease for this listing whose
+  // [startDate, endDate] interval overlaps the requested interval.
+  // Terminal statuses: "completed" | "terminated" | "cancelled".
+  const overlap = await Lease.findOne({
+    listing: listing.id,
+    status: { $in: ["draft", "proposed", "active", "disputed"] },
+    startDate: { $lt: new Date(input.endDate) },
+    endDate: { $gt: new Date(input.startDate) },
+  }).lean();
+
+  if (overlap) {
+    throw new AppError(
+      "A lease for this listing already covers part of the requested period",
+      StatusCodes.CONFLICT,
+    );
+  }
+
   // Early wallet warning: both parties need wallets before escrow can be funded.
   const landlord = await User.findById(listing.createdBy);
   if (!landlord?.walletAddress || !tenant.walletAddress) {
