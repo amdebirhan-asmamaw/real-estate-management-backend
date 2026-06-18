@@ -83,6 +83,10 @@ const envSchema = Joi.object({
     .integer()
     .min(1)
     .default(24 * 30),
+  // Account lockout: after MAX_LOGIN_ATTEMPTS consecutive bad passwords the
+  // account is locked for LOGIN_LOCK_MINUTES. Set to 0 to disable locking.
+  MAX_LOGIN_ATTEMPTS: Joi.number().integer().min(0).default(5),
+  LOGIN_LOCK_MINUTES: Joi.number().integer().min(1).default(15),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -135,6 +139,8 @@ interface Env {
   NOMINATIM_BASE_URL: string;
   NOMINATIM_USER_AGENT: string;
   GEOCODER_CACHE_TTL_HOURS: number;
+  MAX_LOGIN_ATTEMPTS: number;
+  LOGIN_LOCK_MINUTES: number;
 }
 
 const validated = value as Env;

@@ -69,6 +69,7 @@ export interface IUser extends Document {
   kycExpiresAt?: Date;
   failedLoginAttempts: number;
   lastFailedLoginAt?: Date;
+  lockedUntil?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   createdAt: Date;
@@ -185,6 +186,7 @@ const userSchema = new Schema<IUser>(
     kycExpiresAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0 },
     lastFailedLoginAt: Date,
+    lockedUntil: { type: Date, select: false },
     passwordResetToken: { type: String, select: false },
     passwordResetExpires: { type: Date, select: false },
   },
@@ -201,6 +203,7 @@ const userSchema = new Schema<IUser>(
         delete ret.passwordResetExpires;
         delete ret.failedLoginAttempts;
         delete ret.lastFailedLoginAt;
+        delete ret.lockedUntil;
         return ret;
       },
     },
