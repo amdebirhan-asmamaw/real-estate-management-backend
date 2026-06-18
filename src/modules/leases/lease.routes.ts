@@ -17,6 +17,7 @@ const admins = authorize("admin", "super_admin");
 const anyParty = authorize("property_owner", "tenant", "admin", "super_admin");
 
 leaseRouter.get("/mine", authenticate, anyParty, controller.mine);
+leaseRouter.get("/tenants", authenticate, landlords, controller.tenantRoster);
 leaseRouter.get("/:id", authenticate, anyParty, controller.getOne);
 leaseRouter.get("/:id/escrow", authenticate, anyParty, controller.escrowInfo);
 leaseRouter.get("/:id/timeline", authenticate, anyParty, controller.timeline);

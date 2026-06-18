@@ -722,6 +722,75 @@ export const listMine = async (userId: string): Promise<ILease[]> =>
     createdAt: -1,
   });
 
+export interface TenantRosterEntry {
+  leaseId: string;
+  tenant: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  listing: {
+    id: string;
+    title: string;
+  };
+  startDate: Date;
+  endDate: Date;
+  status: LeaseStatus;
+  monthlyRent: number;
+}
+
+/**
+ * Returns active (or recent) leases scoped to the caller:
+ *   - property_owner: only their own leases
+ *   - admin/super_admin: all leases, or optionally filtered by ownerId query param
+ */
+export const tenantRoster = async (
+  userId: string,
+  role: string,
+  filterOwnerId?: string,
+): Promise<TenantRosterEntry[]> => {
+  const query: Record<string, unknown> = {};
+
+  if (isAdmin(role)) {
+    if (filterOwnerId) query.landlord = filterOwnerId;
+    // else return all
+  } else {
+    query.landlord = userId;
+  }
+
+  const leases = await Lease.find(query)
+    .populate<{
+      tenant: { _id: unknown; name: string; email: string };
+    }>("tenant", "name email")
+    .populate<{ listing: { _id: unknown; title: string } }>("listing", "title")
+    .sort({ createdAt: -1 });
+
+  return leases.map((lease) => {
+    const t = lease.tenant as unknown as {
+      _id: unknown;
+      name: string;
+      email: string;
+    };
+    const l = lease.listing as unknown as { _id: unknown; title: string };
+    return {
+      leaseId: lease.id,
+      tenant: {
+        id: String(t._id),
+        name: t.name,
+        email: t.email,
+      },
+      listing: {
+        id: String(l._id),
+        title: l.title,
+      },
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+      status: lease.status,
+      monthlyRent: lease.monthlyRent,
+    };
+  });
+};
+
 export const getLeaseById = async (
   id: string,
   userId: string | null,
