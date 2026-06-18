@@ -87,6 +87,9 @@ const envSchema = Joi.object({
   // account is locked for LOGIN_LOCK_MINUTES. Set to 0 to disable locking.
   MAX_LOGIN_ATTEMPTS: Joi.number().integer().min(0).default(5),
   LOGIN_LOCK_MINUTES: Joi.number().integer().min(1).default(15),
+  // Signed-URL lifetime in seconds for private (authenticated) Cloudinary assets.
+  // Default 300 s (5 min). Must be > 0.
+  SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(1).default(300),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -141,6 +144,7 @@ interface Env {
   GEOCODER_CACHE_TTL_HOURS: number;
   MAX_LOGIN_ATTEMPTS: number;
   LOGIN_LOCK_MINUTES: number;
+  SIGNED_URL_TTL_SECONDS: number;
 }
 
 const validated = value as Env;

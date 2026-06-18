@@ -39,7 +39,8 @@ const streamUpload = (
     const stream = cloudinary.uploader.upload_stream(
       options,
       (error, result) => {
-        if (error || !result) return reject(error ?? new Error("Upload failed"));
+        if (error || !result)
+          return reject(error ?? new Error("Upload failed"));
         resolve(result as unknown as RawUpload);
       },
     );
@@ -86,14 +87,23 @@ export const uploadPrivate = async (
   return { publicId: result.public_id };
 };
 
-/** Mints a signed delivery URL for a private (authenticated) asset. */
+/** Mints a signed delivery URL for a private (authenticated) asset.
+ *
+ * The URL carries an explicit expiry timestamp so Cloudinary enforces the TTL
+ * server-side. Without `expires` the signature never expires — anyone who
+ * obtains the URL retains permanent access to the private document.
+ *
+ * TTL is controlled by the SIGNED_URL_TTL_SECONDS env var (default 300 s).
+ */
 export const signedUrl = (publicId: string): string => {
   ensureConfigured();
+  const expiresAt = Math.floor(Date.now() / 1000) + env.SIGNED_URL_TTL_SECONDS;
   return cloudinary.url(publicId, {
     type: "authenticated",
     resource_type: "image",
     sign_url: true,
     secure: true,
+    expires_at: expiresAt,
   });
 };
 
