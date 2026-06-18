@@ -7,8 +7,8 @@ import { PROPERTY_TITLE_ABI } from "./propertyTitle.abi";
 export const isConfigured = (): boolean =>
   Boolean(
     env.BLOCKCHAIN_RPC_URL &&
-      env.TITLE_CONTRACT_ADDRESS &&
-      env.MINTER_PRIVATE_KEY,
+    env.TITLE_CONTRACT_ADDRESS &&
+    env.MINTER_PRIVATE_KEY,
   );
 
 let cached: { contract: Contract; minter: Wallet } | null = null;
@@ -140,6 +140,21 @@ export const revokeOnChainTitle = async (
 ): Promise<{ txHash: string }> => {
   const { contract } = getContract();
   const tx = await contract.revokeTitle(tokenId, reason);
+  const receipt = await tx.wait();
+  return { txHash: receipt.hash };
+};
+
+/**
+ * Transfers a title NFT from the custodial minter wallet to the buyer's
+ * wallet address.  The custodial signer is the current owner of all minted
+ * titles, so we call transferFrom(minter.address, toWallet, tokenId).
+ */
+export const transferTitle = async (
+  tokenId: string,
+  toWallet: string,
+): Promise<{ txHash: string }> => {
+  const { contract, minter } = getContract();
+  const tx = await contract.transferFrom(minter.address, toWallet, tokenId);
   const receipt = await tx.wait();
   return { txHash: receipt.hash };
 };

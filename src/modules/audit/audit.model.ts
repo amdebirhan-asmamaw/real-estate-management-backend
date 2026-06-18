@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   "purchase.escrow_funded",
   "purchase.escrow_released",
   "purchase.escrow_refunded",
+  "purchase.title_transferred",
   "purchase.disputed",
   "purchase.dispute_resolved",
   // Rental applications
