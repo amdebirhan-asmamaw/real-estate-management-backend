@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as controller from "./listing.controller";
+import * as rentalYieldController from "../rentalYield/rentalYield.controller";
 import { validate } from "../../core/middleware/validate.middleware";
 import {
   authenticate,
@@ -22,6 +23,10 @@ import {
   setCoverSchema,
   titleActionSchema,
 } from "./listing.validation";
+import {
+  maintenanceRecordQuerySchema,
+  maintenanceRecordSchema,
+} from "../rentalYield/rentalYield.validation";
 
 export const listingRouter = Router();
 
@@ -49,6 +54,26 @@ listingRouter.get(
   authenticate,
   managers,
   controller.analytics,
+);
+listingRouter.get(
+  "/:id/yield",
+  authenticate,
+  managers,
+  rentalYieldController.yieldSummary,
+);
+listingRouter.get(
+  "/:id/maintenance-records",
+  authenticate,
+  managers,
+  validate(maintenanceRecordQuerySchema, "query"),
+  rentalYieldController.listMaintenanceRecords,
+);
+listingRouter.post(
+  "/:id/maintenance-records",
+  authenticate,
+  managers,
+  validate(maintenanceRecordSchema),
+  rentalYieldController.createMaintenanceRecord,
 );
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 

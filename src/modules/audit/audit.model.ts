@@ -83,6 +83,8 @@ export const AUDIT_ACTIONS = [
   "rental_application.appointment_updated",
   "rental_application.withdrawn",
   "rental_application.lease_created",
+  // Rental yield
+  "maintenance_record.created",
 ] as const;
 
 export type AuditTargetType =

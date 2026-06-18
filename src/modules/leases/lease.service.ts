@@ -730,3 +730,90 @@ export const getEscrowInfo = async (
     : null;
   return { lease, onChain };
 };
+
+export const getTimeline = async (
+  id: string,
+  userId: string | null,
+  role: string | null,
+) => {
+  const lease = await getLeaseById(id, userId, role);
+  const activated =
+    lease.status === "active" ||
+    lease.status === "completed" ||
+    lease.status === "terminated";
+  const settled = ["completed", "terminated", "cancelled"].includes(
+    lease.status,
+  );
+
+  const events: Array<{
+    key: string;
+    label: string;
+    at?: Date;
+    status: string;
+    metadata?: Record<string, unknown>;
+  }> = [
+    {
+      key: "created",
+      label: "Lease created",
+      at: lease.createdAt,
+      status: "completed",
+    },
+    {
+      key: "proposed",
+      label: "Lease proposed",
+      at: lease.termsHash ? lease.updatedAt : undefined,
+      status: lease.termsHash ? "completed" : "pending",
+      metadata: { termsHash: lease.termsHash },
+    },
+    {
+      key: "signed",
+      label: "Tenant signed",
+      at: lease.signedByTenantAt,
+      status: lease.signedByTenantAt ? "completed" : "pending",
+    },
+    {
+      key: "escrow_funded",
+      label: "Escrow funded",
+      at: lease.escrow.fundTxHash ? lease.updatedAt : undefined,
+      status: lease.escrow.fundTxHash ? "completed" : "pending",
+      metadata: {
+        txHash: lease.escrow.fundTxHash,
+        escrowId: lease.escrow.escrowId,
+      },
+    },
+    {
+      key: "active",
+      label: "Lease activated",
+      at: lease.escrow.activateTxHash ? lease.updatedAt : undefined,
+      status: activated ? "completed" : "pending",
+      metadata: { txHash: lease.escrow.activateTxHash },
+    },
+    {
+      key: "settled",
+      label: "Lease settled",
+      at: lease.escrow.settleTxHash ? lease.updatedAt : undefined,
+      status: settled ? "completed" : "pending",
+      metadata: {
+        txHash: lease.escrow.settleTxHash,
+        finalStatus: lease.status,
+      },
+    },
+  ];
+
+  if (lease.dispute?.openedAt) {
+    events.push({
+      key: "disputed",
+      label: "Dispute opened",
+      at: lease.dispute.openedAt,
+      status: lease.status === "disputed" ? "active" : "completed",
+      metadata: { reason: lease.dispute.reason },
+    });
+  }
+
+  return {
+    leaseId: lease.id,
+    currentStatus: lease.status,
+    escrowState: lease.escrow.state,
+    events,
+  };
+};

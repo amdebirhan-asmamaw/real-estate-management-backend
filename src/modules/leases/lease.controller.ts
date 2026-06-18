@@ -199,3 +199,16 @@ export const escrowInfo: Handler = async (req, res, next) => {
     next(e);
   }
 };
+
+export const timeline: Handler = async (req, res, next) => {
+  try {
+    const result = await service.getTimeline(
+      req.params.id,
+      req.user?.userId ?? null,
+      req.user?.role ?? null,
+    );
+    sendSuccess(res, result, "Lease timeline");
+  } catch (e) {
+    next(e);
+  }
+};
