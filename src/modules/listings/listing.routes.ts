@@ -57,6 +57,12 @@ listingRouter.get(
   controller.ownerDashboard,
 );
 listingRouter.get(
+  "/dashboard/yield",
+  authenticate,
+  managers,
+  controller.yieldDashboard,
+);
+listingRouter.get(
   "/:id/analytics",
   authenticate,
   managers,

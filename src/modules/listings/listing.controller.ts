@@ -442,6 +442,15 @@ export const adminStats: Handler = async (_req, res, next) => {
   }
 };
 
+export const yieldDashboard: Handler = async (req, res, next) => {
+  try {
+    const stats = await service.yieldDashboard(req.user!.userId);
+    sendSuccess(res, stats, "Yield dashboard");
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const neighborhoodAnalytics: Handler = async (req, res, next) => {
   try {
     const stats = await service.neighborhoodAnalytics(

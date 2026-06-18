@@ -1365,6 +1365,67 @@ export const adminDashboardStats = async (): Promise<AdminListingStats> => {
   return { total, byStatus, byVerification, pendingReview };
 };
 
+// ─── Yield / revenue dashboard ─────────────────────────────────────────────────
+
+import { Lease } from "../leases/lease.model";
+
+export interface YieldDashboard {
+  totalListings: number;
+  activeLeaseCount: number;
+  grossMonthlyRent: number;
+  realizedRevenue: number;
+  occupancyRate: number;
+}
+
+/**
+ * Portfolio-level yield rollup for a property owner:
+ *   - activeLeaseCount    — leases currently in "active" status
+ *   - grossMonthlyRent    — sum of monthlyRent across active leases
+ *   - realizedRevenue     — sum of monthlyRent across completed/terminated leases
+ *   - occupancyRate       — rented/total owned published+rented listings
+ */
+export const yieldDashboard = async (
+  userId: string,
+): Promise<YieldDashboard> => {
+  const [totalListings, leases, rentedCount] = await Promise.all([
+    Listing.countDocuments({ createdBy: userId }),
+    Lease.find({
+      landlord: userId,
+      status: { $in: ["active", "completed", "terminated"] },
+    }).select("status monthlyRent"),
+    Listing.countDocuments({ createdBy: userId, status: "rented" }),
+  ]);
+
+  let activeLeaseCount = 0;
+  let grossMonthlyRent = 0;
+  let realizedRevenue = 0;
+
+  for (const lease of leases) {
+    if (lease.status === "active") {
+      activeLeaseCount += 1;
+      grossMonthlyRent += lease.monthlyRent;
+    } else {
+      // completed or terminated — count one month of realized rent
+      realizedRevenue += lease.monthlyRent;
+    }
+  }
+
+  const publishedCount = await Listing.countDocuments({
+    createdBy: userId,
+    status: "published",
+  });
+  const rentable = publishedCount + rentedCount;
+  const occupancyRate = rentable > 0 ? Math.min(1, rentedCount / rentable) : 0;
+
+  return {
+    totalListings,
+    activeLeaseCount,
+    grossMonthlyRent,
+    realizedRevenue,
+    occupancyRate,
+  };
+};
+
 // ─── Neighborhood analytics ─────────────────────────────────────────────────────
 
 export interface NeighborhoodStat {
