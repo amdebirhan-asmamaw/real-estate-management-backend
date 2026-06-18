@@ -30,14 +30,16 @@ export const kycPaths: Record<string, unknown> = {
       },
       responses: {
         "201": {
-          description: "Submitted",
+          description: "Submitted (status set to pending or resubmitted)",
           content: {
             "application/json": {
               schema: envelope("#/components/schemas/KycSummary"),
             },
           },
         },
+        "400": { description: "No files uploaded" },
         "401": { $ref: "#/components/responses/Error" },
+        "422": { $ref: "#/components/responses/Error" },
       },
     },
   },
@@ -55,6 +57,7 @@ export const kycPaths: Record<string, unknown> = {
             },
           },
         },
+        "401": { $ref: "#/components/responses/Error" },
       },
     },
   },
@@ -62,6 +65,8 @@ export const kycPaths: Record<string, unknown> = {
     get: {
       tags: ["KYC"],
       summary: "Signed URL for one of your KYC documents",
+      description:
+        "Returns a short-lived signed Cloudinary URL for the caller's own private KYC document.",
       security: bearer,
       parameters: [
         {
@@ -71,7 +76,28 @@ export const kycPaths: Record<string, unknown> = {
           schema: { type: "string" },
         },
       ],
-      responses: { "200": { description: "Signed URL" } },
+      responses: {
+        "200": {
+          description: "Signed URL",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: { url: { type: "string", format: "uri" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "401": { $ref: "#/components/responses/Error" },
+        "404": { $ref: "#/components/responses/Error" },
+      },
     },
   },
 };

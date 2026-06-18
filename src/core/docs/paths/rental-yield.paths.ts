@@ -1,7 +1,7 @@
 // Rental yield paths: maintenance records and yield dashboard.
 // Aligned to: rentalYield.validation.ts, listing.routes.ts
 
-import { bearer, body, ok, idParam, page } from "../_helpers";
+import { bearer, body, envelope, idParam, page } from "../_helpers";
 
 export const rentalYieldPaths: Record<string, unknown> = {
   "/listings/{id}/maintenance-records": {
@@ -48,9 +48,31 @@ export const rentalYieldPaths: Record<string, unknown> = {
       ],
       responses: {
         "200": {
-          description: "Maintenance records",
+          description: "Paginated maintenance records",
           content: {
-            "application/json": { schema: ok("Maintenance records") },
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string", example: "Maintenance records" },
+                  data: {
+                    type: "object",
+                    properties: {
+                      items: {
+                        type: "array",
+                        items: {
+                          $ref: "#/components/schemas/MaintenanceRecord",
+                        },
+                      },
+                      total: { type: "integer" },
+                      page: { type: "integer" },
+                      limit: { type: "integer" },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
         "401": { $ref: "#/components/responses/Error" },
@@ -99,9 +121,17 @@ export const rentalYieldPaths: Record<string, unknown> = {
         },
       }),
       responses: {
-        "201": { description: "Maintenance record created" },
+        "201": {
+          description: "Maintenance record created",
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/MaintenanceRecord"),
+            },
+          },
+        },
         "401": { $ref: "#/components/responses/Error" },
         "403": { $ref: "#/components/responses/Error" },
+        "404": { $ref: "#/components/responses/Error" },
         "422": { $ref: "#/components/responses/Error" },
       },
     },
@@ -118,7 +148,11 @@ export const rentalYieldPaths: Record<string, unknown> = {
       responses: {
         "200": {
           description: "Yield summary",
-          content: { "application/json": { schema: ok("Yield summary") } },
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/YieldSummary"),
+            },
+          },
         },
         "401": { $ref: "#/components/responses/Error" },
         "403": { $ref: "#/components/responses/Error" },

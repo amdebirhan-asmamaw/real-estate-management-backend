@@ -6,6 +6,7 @@ import { inquirySchemas } from "./inquiry.schemas";
 import { leaseSchemas } from "./lease.schemas";
 import { kycSchemas } from "./kyc.schemas";
 import { commonSchemas } from "./common.schemas";
+import { operationsSchemas } from "./operations.schemas";
 
 export const allSchemas: Record<string, unknown> = {
   ...commonSchemas,
@@ -14,4 +15,5 @@ export const allSchemas: Record<string, unknown> = {
   ...inquirySchemas,
   ...leaseSchemas,
   ...kycSchemas,
+  ...operationsSchemas,
 };

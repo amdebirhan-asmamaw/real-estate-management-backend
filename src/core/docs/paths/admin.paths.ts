@@ -1,7 +1,40 @@
 // Admin paths: user management, listing review, KYC admin, admin management, audit logs.
-// Aligned to: admin.routes.ts, kyc.admin.routes.ts, admin.routes.ts(listings), audit.routes.ts
+// Aligned to: admin.routes.ts, kyc.admin.routes.ts, admin.routes.ts(listings), audit.routes.ts.
 
-import { bearer, body, ok, idParam, page, limit } from "../_helpers";
+import { bearer, envelope, body, idParam, page, limit } from "../_helpers";
+
+const paginated = (itemsSchema: Record<string, unknown>) => ({
+  type: "object",
+  properties: {
+    success: { type: "boolean", example: true },
+    message: { type: "string" },
+    data: {
+      type: "object",
+      properties: {
+        items: { type: "array", items: itemsSchema },
+        total: { type: "integer" },
+        page: { type: "integer" },
+        limit: { type: "integer" },
+      },
+    },
+  },
+});
+
+const userResp = (desc: string, code = "200") => ({
+  [code]: {
+    description: desc,
+    content: {
+      "application/json": {
+        schema: envelope("#/components/schemas/AuthUser"),
+      },
+    },
+  },
+});
+
+const adminErr = {
+  "401": { $ref: "#/components/responses/Error" },
+  "403": { $ref: "#/components/responses/Error" },
+};
 
 export const adminPaths: Record<string, unknown> = {
   // ─── Listing review queue (admin.routes.ts for listings) ─────────────────────
@@ -54,9 +87,15 @@ export const adminPaths: Record<string, unknown> = {
         limit,
       ],
       responses: {
-        "200": { description: "Paginated listings" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Paginated listings",
+          content: {
+            "application/json": {
+              schema: paginated({ $ref: "#/components/schemas/Listing" }),
+            },
+          },
+        },
+        ...adminErr,
       },
     },
   },
@@ -66,9 +105,36 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Listing stats for admin dashboard",
       security: bearer,
       responses: {
-        "200": { description: "Stats" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Listing counts grouped by status / verification",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: {
+                      total: { type: "integer" },
+                      byStatus: {
+                        type: "object",
+                        additionalProperties: { type: "integer" },
+                      },
+                      byVerification: {
+                        type: "object",
+                        additionalProperties: { type: "integer" },
+                      },
+                      pendingReview: { type: "integer" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ...adminErr,
       },
     },
   },
@@ -145,9 +211,15 @@ export const adminPaths: Record<string, unknown> = {
         limit,
       ],
       responses: {
-        "200": { description: "User list" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Paginated users",
+          content: {
+            "application/json": {
+              schema: paginated({ $ref: "#/components/schemas/AuthUser" }),
+            },
+          },
+        },
+        ...adminErr,
       },
     },
   },
@@ -158,7 +230,8 @@ export const adminPaths: Record<string, unknown> = {
       security: bearer,
       parameters: [idParam],
       responses: {
-        "200": { description: "User" },
+        ...userResp("User detail"),
+        ...adminErr,
         "404": { $ref: "#/components/responses/Error" },
       },
     },
@@ -179,11 +252,7 @@ export const adminPaths: Record<string, unknown> = {
           },
         },
       }),
-      responses: {
-        "200": { description: "Updated" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
-      },
+      responses: { ...userResp("Status updated"), ...adminErr },
     },
   },
   "/admin/users/{id}/suspend": {
@@ -192,7 +261,7 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Suspend user",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Suspended"),
+      responses: { ...userResp("User suspended"), ...adminErr },
     },
   },
   "/admin/users/{id}/reactivate": {
@@ -201,7 +270,7 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Reactivate user",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Reactivated"),
+      responses: { ...userResp("User reactivated"), ...adminErr },
     },
   },
   "/admin/users/{id}/block": {
@@ -210,21 +279,20 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Block user permanently",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Blocked"),
+      responses: { ...userResp("User blocked"), ...adminErr },
     },
   },
   "/admin/users/{id}/restore": {
     post: {
       tags: ["Admin"],
-      summary: "Restore a blocked/rejected user (super_admin only)",
+      summary: "Restore a blocked/suspended user (super_admin only)",
       description:
-        "Re-activates a user whose account was previously blocked or rejected.",
+        "Re-activates a user whose account was previously blocked or suspended.",
       security: bearer,
       parameters: [idParam],
       responses: {
-        "200": { description: "User restored" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        ...userResp("User restored"),
+        ...adminErr,
         "404": { $ref: "#/components/responses/Error" },
       },
     },
@@ -235,7 +303,7 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Revoke user wallet (admin)",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Wallet revoked"),
+      responses: { ...userResp("Wallet revoked"), ...adminErr },
     },
   },
 
@@ -247,9 +315,15 @@ export const adminPaths: Record<string, unknown> = {
       security: bearer,
       parameters: [idParam],
       responses: {
-        "200": { description: "KYC summary" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "KYC summary",
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/KycSummary"),
+            },
+          },
+        },
+        ...adminErr,
       },
     },
   },
@@ -260,9 +334,15 @@ export const adminPaths: Record<string, unknown> = {
       security: bearer,
       parameters: [idParam],
       responses: {
-        "200": { description: "Review started" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Review started",
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/KycSummary"),
+            },
+          },
+        },
+        ...adminErr,
         "409": { $ref: "#/components/responses/Error" },
       },
     },
@@ -271,7 +351,9 @@ export const adminPaths: Record<string, unknown> = {
     post: {
       tags: ["Admin"],
       summary: "Approve/reject a user's KYC",
-      description: "Approval verifies the user and activates the account.",
+      description:
+        "Approval verifies the user and activates the account. A `note` is required when " +
+        "the decision is `reject`.",
       security: bearer,
       parameters: [idParam],
       requestBody: body({
@@ -279,13 +361,24 @@ export const adminPaths: Record<string, unknown> = {
         required: ["decision"],
         properties: {
           decision: { type: "string", enum: ["approve", "reject"] },
-          note: { type: "string" },
+          note: {
+            type: "string",
+            maxLength: 2000,
+            description: "Required when decision = reject",
+          },
         },
       }),
       responses: {
-        "200": { description: "Reviewed" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Reviewed",
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/KycSummary"),
+            },
+          },
+        },
+        ...adminErr,
+        "422": { $ref: "#/components/responses/Error" },
       },
     },
   },
@@ -304,9 +397,26 @@ export const adminPaths: Record<string, unknown> = {
         },
       ],
       responses: {
-        "200": { description: "Signed URL" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Signed URL",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: { url: { type: "string", format: "uri" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        ...adminErr,
+        "404": { $ref: "#/components/responses/Error" },
       },
     },
   },
@@ -335,9 +445,15 @@ export const adminPaths: Record<string, unknown> = {
         limit,
       ],
       responses: {
-        "200": { description: "Admin list" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Paginated admins",
+          content: {
+            "application/json": {
+              schema: paginated({ $ref: "#/components/schemas/AuthUser" }),
+            },
+          },
+        },
+        ...adminErr,
       },
     },
     post: {
@@ -359,7 +475,8 @@ export const adminPaths: Record<string, unknown> = {
         },
       }),
       responses: {
-        "201": { description: "Created" },
+        ...userResp("Admin created", "201"),
+        ...adminErr,
         "409": { $ref: "#/components/responses/Error" },
       },
     },
@@ -370,7 +487,7 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Suspend admin (super_admin only)",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Suspended"),
+      responses: { ...userResp("Admin suspended"), ...adminErr },
     },
   },
   "/admin/admins/{id}/reactivate": {
@@ -379,7 +496,7 @@ export const adminPaths: Record<string, unknown> = {
       summary: "Reactivate admin (super_admin only)",
       security: bearer,
       parameters: [idParam],
-      responses: ok("Reactivated"),
+      responses: { ...userResp("Admin reactivated"), ...adminErr },
     },
   },
 
@@ -409,9 +526,15 @@ export const adminPaths: Record<string, unknown> = {
         },
       }),
       responses: {
-        "200": { description: "Case overridden" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Case overridden",
+          content: {
+            "application/json": {
+              schema: envelope("#/components/schemas/ComplianceCase"),
+            },
+          },
+        },
+        ...adminErr,
         "404": { $ref: "#/components/responses/Error" },
       },
     },
@@ -474,9 +597,15 @@ export const adminPaths: Record<string, unknown> = {
         limit,
       ],
       responses: {
-        "200": { description: "Paginated audit logs" },
-        "401": { $ref: "#/components/responses/Error" },
-        "403": { $ref: "#/components/responses/Error" },
+        "200": {
+          description: "Paginated audit logs",
+          content: {
+            "application/json": {
+              schema: paginated({ $ref: "#/components/schemas/AuditLog" }),
+            },
+          },
+        },
+        ...adminErr,
       },
     },
   },

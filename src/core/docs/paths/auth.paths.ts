@@ -22,6 +22,7 @@ export const authPaths: Record<string, unknown> = {
         },
         "409": { $ref: "#/components/responses/Error" },
         "422": { $ref: "#/components/responses/Error" },
+        "429": { description: "Too many requests (rate limited)" },
       },
     },
   },
@@ -41,6 +42,11 @@ export const authPaths: Record<string, unknown> = {
         },
         "401": { description: "Invalid credentials" },
         "403": { description: "Account suspended / blocked / rejected" },
+        "423": {
+          description:
+            "Account temporarily locked after too many failed attempts",
+        },
+        "429": { description: "Too many requests (rate limited)" },
       },
     },
   },
@@ -59,6 +65,7 @@ export const authPaths: Record<string, unknown> = {
           },
         },
         "401": { $ref: "#/components/responses/Error" },
+        "429": { description: "Too many requests (rate limited)" },
       },
     },
   },
@@ -133,6 +140,7 @@ export const authPaths: Record<string, unknown> = {
           description: "Reset instructions queued if the account exists",
         },
         "422": { $ref: "#/components/responses/Error" },
+        "429": { description: "Too many requests (rate limited)" },
       },
     },
   },
@@ -147,6 +155,7 @@ export const authPaths: Record<string, unknown> = {
         "400": { $ref: "#/components/responses/Error" },
         "401": { $ref: "#/components/responses/Error" },
         "422": { $ref: "#/components/responses/Error" },
+        "429": { description: "Too many requests (rate limited)" },
       },
     },
   },
@@ -178,7 +187,19 @@ export const authPaths: Record<string, unknown> = {
         "200": {
           description: "Active sessions",
           content: {
-            "application/json": { schema: envelope() },
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Session" },
+                  },
+                },
+              },
+            },
           },
         },
         "401": { $ref: "#/components/responses/Error" },
@@ -208,10 +229,15 @@ export const authPaths: Record<string, unknown> = {
         "200": {
           description: "Challenge nonce to sign",
           content: {
-            "application/json": { schema: envelope() },
+            "application/json": {
+              schema: envelope("#/components/schemas/WalletChallengeResult"),
+            },
           },
         },
         "401": { $ref: "#/components/responses/Error" },
+        "409": {
+          description: "Wallet already linked to another account",
+        },
       },
     },
   },

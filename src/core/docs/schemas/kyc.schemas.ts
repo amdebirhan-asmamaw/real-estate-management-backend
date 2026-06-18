@@ -6,10 +6,19 @@ export const kycSchemas: Record<string, unknown> = {
     properties: {
       kycStatus: {
         type: "string",
-        enum: ["not_started", "pending", "verified", "rejected"],
+        enum: [
+          "not_started",
+          "pending",
+          "under_review",
+          "verified",
+          "rejected",
+          "expired",
+        ],
       },
       accountStatus: { type: "string" },
-      reviewNote: { type: "string" },
+      reviewNote: { type: "string", nullable: true },
+      verifiedAt: { type: "string", format: "date-time", nullable: true },
+      expiresAt: { type: "string", format: "date-time", nullable: true },
       documents: {
         type: "array",
         items: {

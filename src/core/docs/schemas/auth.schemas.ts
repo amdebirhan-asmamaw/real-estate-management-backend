@@ -52,6 +52,37 @@ export const authSchemas: Record<string, unknown> = {
       tokens: { $ref: "#/components/schemas/Tokens" },
     },
   },
+  Session: {
+    type: "object",
+    description: "An active refresh-token session for the caller.",
+    properties: {
+      id: { type: "string" },
+      userAgent: { type: "string", nullable: true },
+      ip: { type: "string", nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      expiresAt: { type: "string", format: "date-time" },
+      current: {
+        type: "boolean",
+        description: "True if this is the session of the presented token",
+      },
+    },
+  },
+  WalletChallengeResult: {
+    type: "object",
+    description: "Nonce challenge the wallet must sign to complete linking.",
+    properties: {
+      walletAddress: { type: "string", pattern: "^0x[a-fA-F0-9]{40}$" },
+      message: {
+        type: "string",
+        description: "Exact message to sign with the wallet (EIP-191)",
+      },
+      expiresAt: {
+        type: "string",
+        format: "date-time",
+        description: "Challenge expiry (10-minute TTL)",
+      },
+    },
+  },
   RegisterInput: {
     type: "object",
     required: ["name", "email", "password"],
