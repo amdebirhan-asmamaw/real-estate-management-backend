@@ -1135,4 +1135,225 @@ export const extraPaths: Record<string, unknown> = {
       responses: { "201": { description: "Lease created" } },
     },
   },
+  "/geo/geocode": {
+    get: {
+      tags: ["Discovery"],
+      summary: "Geocode an address or place name",
+      parameters: [
+        {
+          name: "q",
+          in: "query",
+          required: true,
+          schema: { type: "string", minLength: 2 },
+        },
+      ],
+      responses: ok("Geocode results"),
+    },
+  },
+  "/geo/reverse": {
+    get: {
+      tags: ["Discovery"],
+      summary: "Reverse geocode coordinates",
+      parameters: [
+        {
+          name: "lat",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+        {
+          name: "lng",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+      ],
+      responses: ok("Reverse geocode result"),
+    },
+  },
+  "/geo/neighborhoods": {
+    get: {
+      tags: ["Discovery"],
+      summary: "List seedable neighborhoods",
+      parameters: [
+        { name: "city", in: "query", schema: { type: "string" } },
+        { name: "country", in: "query", schema: { type: "string" } },
+      ],
+      responses: ok("Neighborhoods"),
+    },
+  },
+  "/geo/neighborhoods/{id}/analytics": {
+    get: {
+      tags: ["Discovery"],
+      summary: "Neighborhood listing and lead analytics",
+      parameters: [idParam],
+      responses: ok("Neighborhood analytics"),
+    },
+  },
+  "/listings/clusters": {
+    get: {
+      tags: ["Discovery"],
+      summary: "Cluster published listings for map viewports",
+      parameters: [
+        {
+          name: "swLng",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+        {
+          name: "swLat",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+        {
+          name: "neLng",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+        {
+          name: "neLat",
+          in: "query",
+          required: true,
+          schema: { type: "number" },
+        },
+        {
+          name: "zoom",
+          in: "query",
+          required: true,
+          schema: { type: "integer" },
+        },
+      ],
+      responses: ok("Map clusters"),
+    },
+  },
+  "/listings/{id}/maintenance-records": {
+    get: {
+      tags: ["Rental Yield"],
+      summary: "List listing maintenance records",
+      security: bearer,
+      parameters: [
+        idParam,
+        {
+          name: "from",
+          in: "query",
+          schema: { type: "string", format: "date-time" },
+        },
+        {
+          name: "to",
+          in: "query",
+          schema: { type: "string", format: "date-time" },
+        },
+      ],
+      responses: ok("Maintenance records"),
+    },
+    post: {
+      tags: ["Rental Yield"],
+      summary: "Create listing maintenance record",
+      security: bearer,
+      parameters: [idParam],
+      requestBody: body({
+        type: "object",
+        required: ["type", "amount"],
+        properties: {
+          leaseId: { type: "string" },
+          type: {
+            type: "string",
+            enum: [
+              "maintenance",
+              "repair",
+              "utility",
+              "tax",
+              "insurance",
+              "management",
+              "other",
+            ],
+          },
+          amount: { type: "number", minimum: 0 },
+          currency: { type: "string", default: "USD" },
+          incurredAt: { type: "string", format: "date-time" },
+          note: { type: "string", maxLength: 2000 },
+        },
+      }),
+      responses: { "201": { description: "Maintenance record created" } },
+    },
+  },
+  "/listings/{id}/yield": {
+    get: {
+      tags: ["Rental Yield"],
+      summary: "Owner rental yield dashboard",
+      security: bearer,
+      parameters: [idParam],
+      responses: ok("Yield summary"),
+    },
+  },
+  "/leases/{id}/timeline": {
+    get: {
+      tags: ["Leases"],
+      summary: "Lease and escrow timeline",
+      security: bearer,
+      parameters: [idParam],
+      responses: ok("Lease timeline"),
+    },
+  },
+  "/purchase-transactions/{id}/fund": {
+    post: {
+      tags: ["Purchase Transactions"],
+      summary: "Fund sale escrow on-chain (admin)",
+      security: bearer,
+      parameters: [idParam],
+      responses: ok("Escrow funded"),
+    },
+  },
+  "/purchase-transactions/{id}/release": {
+    post: {
+      tags: ["Purchase Transactions"],
+      summary: "Release sale escrow to seller (admin)",
+      security: bearer,
+      parameters: [idParam],
+      responses: ok("Escrow released"),
+    },
+  },
+  "/purchase-transactions/{id}/refund": {
+    post: {
+      tags: ["Purchase Transactions"],
+      summary: "Refund sale escrow to buyer (admin)",
+      security: bearer,
+      parameters: [idParam],
+      responses: ok("Escrow refunded"),
+    },
+  },
+  "/purchase-transactions/{id}/dispute": {
+    post: {
+      tags: ["Purchase Transactions"],
+      summary: "Open purchase transaction dispute",
+      security: bearer,
+      parameters: [idParam],
+      requestBody: body({
+        type: "object",
+        required: ["reason"],
+        properties: { reason: { type: "string", maxLength: 2000 } },
+      }),
+      responses: ok("Dispute opened"),
+    },
+  },
+  "/purchase-transactions/{id}/dispute/resolve": {
+    post: {
+      tags: ["Purchase Transactions"],
+      summary: "Resolve purchase transaction dispute (admin)",
+      security: bearer,
+      parameters: [idParam],
+      requestBody: body({
+        type: "object",
+        required: ["decision"],
+        properties: {
+          decision: { type: "string", enum: ["release", "refund"] },
+          note: { type: "string", maxLength: 2000 },
+        },
+      }),
+      responses: ok("Dispute resolved"),
+    },
+  },
 };

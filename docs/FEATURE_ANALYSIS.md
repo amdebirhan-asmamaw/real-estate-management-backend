@@ -6,6 +6,8 @@
 
 ## Context
 
+**2026-06-18 implementation update:** purchase escrow, geo clustering/geocoding, rental yield tracking, chain reconciliation workers, saved-search catch-up alerts, expanded readiness checks, and request correlation IDs have since been implemented. The remaining hardening focus is operational deployment discipline: managed signer/KMS, production monitoring, backup/restore rehearsal, external provider SLAs, and legal/compliance sign-off before any mainnet escrow use.
+
 This document assesses the **current** implementation state of the two repos against the PRD's nine trust-layer modules and the project's four scope areas, and lays out exactly what remains to reach the PRD's **Prototype Definition of Done** and a production-ready posture. It is the single source of truth for "what's left to build."
 
 **Headline:** the platform is substantially further along than a greenfield prototype. All nine PRD modules exist in some form; most are functional. The remaining work is **completion and hardening**, not net-new subsystems — with three genuine feature gaps (purchase escrow, dedicated compliance queues, a few status/audit refinements) and a set of cross-cutting production concerns (chain/DB consistency, secrets, test coverage, real-money guardrails).

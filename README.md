@@ -1,6 +1,6 @@
-# Express Project Template
+# Web3 Real Estate Marketplace Backend
 
-A production-ready backend template built with **Express 4**, **TypeScript**, and **MongoDB (Mongoose)**. It ships with JWT authentication, request validation, structured error handling, security hardening, tests, Docker, and CI so you can start building features instead of plumbing.
+A production-shaped backend for a blockchain-enabled real-estate marketplace. It supports the four-role model `SUPER_ADMIN`, `ADMIN`, `PROPERTY_OWNER`, and `TENANT` where tenants are buyers or renters. The API covers property discovery, owner listing workflows, KYC/compliance oversight, offers, purchase transactions, rental applications, leases, ERC-721 property titles, ERC-20 lease/sale escrow, saved-search alerts, audit logs, and operational diagnostics.
 
 ## Features
 
@@ -11,7 +11,12 @@ A production-ready backend template built with **Express 4**, **TypeScript**, an
 - **Centralized error handling** — `AppError`, consistent JSON error shapes, mapping for Joi/Mongoose/JWT errors
 - **Security** — Helmet, CORS allow-list, rate limiting (general + stricter on auth), `trust proxy`, secret-redacting request logs
 - **Config validation** — fail-fast environment variable validation at startup
-- **Health checks** — `/health` (liveness) and `/health/ready` (readiness, checks the DB)
+- **Spatial discovery** — viewport/radius/polygon filtering, map clusters, geocoding, neighborhoods, and analytics
+- **Marketplace workflows** — listings, media, ownership documents, favorites, inquiries, offers, purchases, applications, leases, and rental yield
+- **Blockchain operations** — title minting/status, lease escrow, sale escrow, chain transaction ledger, and reconciliation worker
+- **Compliance and oversight** — KYC review, broker licenses, compliance cases/queues, admin audit logs, and notifications
+- **Health checks** — `/health` and expanded `/health/ready` for DB, SMTP, Cloudinary, RPC, contracts, and geocoder config
+- **Request correlation** — `x-request-id` propagated to responses, logs, and audit metadata
 - **Graceful shutdown** — drains the HTTP server and closes the DB connection on `SIGTERM`/`SIGINT`
 - **Testing** — Jest + Supertest with an in-memory MongoDB (no external DB needed)
 - **Tooling** — ESLint, Prettier, EditorConfig, husky + lint-staged pre-commit hook
@@ -57,6 +62,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | `npm run format`        | Format with Prettier             |
 | `npm test`              | Run the test suite               |
 | `npm run test:coverage` | Run tests with a coverage report |
+| `npm run reconcile:chain` | One-shot chain transaction reconciliation worker |
+| `npm run alerts:saved-searches` | One-shot saved-search alert catch-up worker |
 
 ## Environment Variables
 
@@ -82,6 +89,14 @@ Validated at startup in [`src/core/config/env.ts`](src/core/config/env.ts). The 
 | `BLOCKCHAIN_RPC_URL`     | no†      | —             | EVM RPC (e.g. local Hardhat node)                         |
 | `TITLE_CONTRACT_ADDRESS` | no†      | —             | Deployed PropertyTitle contract address                   |
 | `MINTER_PRIVATE_KEY`     | no†      | —             | Custodial minter wallet private key                       |
+| `ESCROW_CONTRACT_ADDRESS` | no†     | —             | Deployed LeaseEscrow contract address                     |
+| `ESCROW_TOKEN_ADDRESS`   | no†      | —             | Allowlisted ERC-20 escrow token                           |
+| `SALE_ESCROW_CONTRACT_ADDRESS` | no† | —             | Deployed SaleEscrow contract address                      |
+| `ALLOW_MAINNET_ESCROW`   | no       | `false`       | Explicit opt-in for Ethereum mainnet escrow operations    |
+| `GEOCODER_PROVIDER`      | no       | `mock`        | `mock` or `nominatim`                                     |
+| `NOMINATIM_BASE_URL`     | no       | `https://nominatim.openstreetmap.org` | Nominatim-compatible endpoint        |
+| `NOMINATIM_USER_AGENT`   | no       | `real-estate-marketplace/1.0` | Required Nominatim user agent             |
+| `GEOCODER_CACHE_TTL_HOURS` | no     | `720`         | Geocoding cache TTL                                       |
 | `APP_BASE_URL`           | no       | `http://localhost:3000` | Frontend URL used in password reset links          |
 | `MAIL_FROM`              | no       | `Swafri <no-reply@swafri.local>` | From address for auth emails           |
 | `SMTP_HOST`              | no‡      | —             | SMTP host for email delivery                              |
@@ -180,6 +195,20 @@ Property owners register as `pending` and must pass KYC before they can submit a
 
 Owners create drafts and **submit** for review; **only admins publish**. See [docs/prd/increment-1-marketplace-core.md](docs/prd/increment-1-marketplace-core.md) for the full workflow.
 
+**Spatial discovery and owner yield**
+
+| Method | Endpoint | Auth | Description |
+| ------ | -------- | ---- | ----------- |
+| GET | `/geo/geocode?q=...` | public | Geocode with cache (`mock` or Nominatim-compatible provider) |
+| GET | `/geo/reverse?lat=...&lng=...` | public | Reverse geocode coordinates |
+| GET | `/geo/neighborhoods` | public | List local neighborhood datasets |
+| GET | `/geo/neighborhoods/:id/analytics` | public | Listing, rent/price, POI, and lead analytics |
+| GET | `/listings/clusters` | public | Map clusters for dense viewport rendering |
+| POST | `/listings/:id/maintenance-records` | owner/admin | Record maintenance, repair, tax, utility, or other costs |
+| GET | `/listings/:id/maintenance-records` | owner/admin | List listing costs |
+| GET | `/listings/:id/yield` | owner/admin | Gross rent, occupancy, escrow history, net and annualized yield |
+| GET | `/leases/:id/timeline` | party/admin | Tenant/owner-visible lease and escrow timeline |
+
 **Favorites & Inquiries** (Increment 1.5)
 
 | Method | Endpoint                  | Auth        | Description                          |
@@ -194,7 +223,19 @@ Owners create drafts and **submit** for review; **only admins publish**. See [do
 
 See [docs/prd/increment-1.5-favorites-inquiries.md](docs/prd/increment-1.5-favorites-inquiries.md).
 
-Plus `GET /health` and `GET /health/ready` at the root.
+Plus `GET /health` and `GET /health/ready` at the root. Readiness reports database, SMTP config, Cloudinary config, RPC provider reachability, title contract config, lease escrow config, sale escrow config, and geocoder adapter status.
+
+**Operational workers**
+
+```bash
+# Reconcile pending/mined chain transactions against the configured RPC.
+npm run reconcile:chain -- --confirmations=2
+
+# Catch up saved-search alerts for recently published/updated listings.
+npm run alerts:saved-searches -- --sinceMinutes=60 --limit=100
+```
+
+Both workers are one-shot entrypoints designed for cron, Kubernetes CronJobs, or an external queue scheduler.
 
 All responses follow a consistent envelope:
 
