@@ -32,21 +32,72 @@ const admins = authorize("admin", "super_admin");
 // ─── Public discovery + read ────────────────────────────────────────────────────
 listingRouter.get("/", validate(discoverySchema, "query"), controller.discover);
 listingRouter.get("/mine", authenticate, managers, controller.mine);
-listingRouter.get("/dashboard", authenticate, managers, controller.ownerDashboard);
-listingRouter.get("/:id/analytics", authenticate, managers, controller.analytics);
+listingRouter.get(
+  "/dashboard",
+  authenticate,
+  managers,
+  controller.ownerDashboard,
+);
+listingRouter.get(
+  "/:id/analytics",
+  authenticate,
+  managers,
+  controller.analytics,
+);
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 
 // ─── Listing lifecycle ──────────────────────────────────────────────────────────
-listingRouter.post("/", authenticate, managers, validate(createListingSchema), controller.create);
-listingRouter.patch("/:id", authenticate, managers, validate(updateListingSchema), controller.update);
+listingRouter.post(
+  "/",
+  authenticate,
+  managers,
+  validate(createListingSchema),
+  controller.create,
+);
+listingRouter.patch(
+  "/:id",
+  authenticate,
+  managers,
+  validate(updateListingSchema),
+  controller.update,
+);
 listingRouter.delete("/:id", authenticate, managers, controller.remove);
-listingRouter.post("/:id/transition", authenticate, managers, validate(transitionSchema), controller.transition);
+listingRouter.post(
+  "/:id/transition",
+  authenticate,
+  managers,
+  validate(transitionSchema),
+  controller.transition,
+);
 
 // ─── Photos (public gallery) ──────────────────────────────────────────────────
-listingRouter.post("/:id/photos", authenticate, managers, uploadPhotosMw, controller.uploadPhotos);
-listingRouter.delete("/:id/photos", authenticate, managers, controller.removePhoto);
-listingRouter.patch("/:id/photos/reorder", authenticate, managers, validate(photoReorderSchema), controller.reorderPhotos);
-listingRouter.patch("/:id/photos/cover", authenticate, managers, validate(setCoverSchema), controller.setCover);
+listingRouter.post(
+  "/:id/photos",
+  authenticate,
+  managers,
+  uploadPhotosMw,
+  controller.uploadPhotos,
+);
+listingRouter.delete(
+  "/:id/photos",
+  authenticate,
+  managers,
+  controller.removePhoto,
+);
+listingRouter.patch(
+  "/:id/photos/reorder",
+  authenticate,
+  managers,
+  validate(photoReorderSchema),
+  controller.reorderPhotos,
+);
+listingRouter.patch(
+  "/:id/photos/cover",
+  authenticate,
+  managers,
+  validate(setCoverSchema),
+  controller.setCover,
+);
 
 // ─── Ownership documents (private) ──────────────────────────────────────────────
 listingRouter.post(
@@ -57,8 +108,18 @@ listingRouter.post(
   validate(documentUploadSchema),
   controller.uploadDocuments,
 );
-listingRouter.get("/:id/documents", authenticate, managers, controller.listDocuments);
-listingRouter.get("/:id/documents/:docId/url", authenticate, managers, controller.documentUrl);
+listingRouter.get(
+  "/:id/documents",
+  authenticate,
+  managers,
+  controller.listDocuments,
+);
+listingRouter.get(
+  "/:id/documents/:docId/url",
+  authenticate,
+  managers,
+  controller.documentUrl,
+);
 listingRouter.post(
   "/:id/documents/:docId/review",
   authenticate,
@@ -68,11 +129,58 @@ listingRouter.post(
 );
 
 // ─── Admin review aids ──────────────────────────────────────────────────────────
-listingRouter.get("/:id/duplicates", authenticate, admins, controller.duplicates);
+listingRouter.get(
+  "/:id/duplicates",
+  authenticate,
+  admins,
+  controller.duplicates,
+);
 
 // ─── On-chain title (Increment 2) ──────────────────────────────────────────────
-listingRouter.post("/:id/mint-title", authenticate, admins, controller.mintTitle);
+listingRouter.post(
+  "/:id/mint-title",
+  authenticate,
+  admins,
+  controller.mintTitle,
+);
 listingRouter.get("/:id/title", optionalAuthenticate, controller.title);
-listingRouter.post("/:id/title/dispute", authenticate, admins, validate(titleActionSchema), controller.disputeTitle);
-listingRouter.post("/:id/title/clear-dispute", authenticate, admins, validate(titleActionSchema), controller.clearTitleDispute);
-listingRouter.post("/:id/title/revoke", authenticate, admins, validate(titleActionSchema), controller.revokeTitle);
+listingRouter.get(
+  "/:id/certificate",
+  optionalAuthenticate,
+  controller.certificate,
+);
+listingRouter.post(
+  "/:id/certificate/suspend",
+  authenticate,
+  admins,
+  validate(titleActionSchema),
+  controller.suspendCertificate,
+);
+listingRouter.post(
+  "/:id/certificate/restore",
+  authenticate,
+  admins,
+  validate(titleActionSchema),
+  controller.restoreCertificate,
+);
+listingRouter.post(
+  "/:id/title/dispute",
+  authenticate,
+  admins,
+  validate(titleActionSchema),
+  controller.disputeTitle,
+);
+listingRouter.post(
+  "/:id/title/clear-dispute",
+  authenticate,
+  admins,
+  validate(titleActionSchema),
+  controller.clearTitleDispute,
+);
+listingRouter.post(
+  "/:id/title/revoke",
+  authenticate,
+  admins,
+  validate(titleActionSchema),
+  controller.revokeTitle,
+);

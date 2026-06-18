@@ -4,8 +4,9 @@ import { validate } from "../../core/middleware/validate.middleware";
 import { authenticate, authorize } from "../../core/middleware/auth.middleware";
 import {
   createAdminSchema,
-  listUsersSchema,
   listAdminsSchema,
+  listUsersSchema,
+  overrideComplianceCaseSchema,
 } from "./admin.validation";
 
 export const adminUserRouter = Router();
@@ -42,6 +43,22 @@ adminUserRouter.post(
   controller.reactivateAdmin,
 );
 
+// ─── Super Admin: Restore User + Override Compliance (B3) ────────────────────
+
+adminUserRouter.post(
+  "/users/:id/restore",
+  authenticate,
+  superAdminOnly,
+  controller.restoreUser,
+);
+adminUserRouter.post(
+  "/compliance/cases/:id/override",
+  authenticate,
+  superAdminOnly,
+  validate(overrideComplianceCaseSchema),
+  controller.overrideComplianceCase,
+);
+
 // ─── Admin + Super Admin: User Management ───────────────────────────────────────
 
 adminUserRouter.get(
@@ -74,4 +91,10 @@ adminUserRouter.post(
   authenticate,
   admins,
   controller.blockUser,
+);
+adminUserRouter.post(
+  "/users/:id/wallet/revoke",
+  authenticate,
+  admins,
+  controller.revokeUserWallet,
 );

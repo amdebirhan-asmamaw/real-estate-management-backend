@@ -74,7 +74,11 @@ export const update: Handler = async (req, res, next) => {
 
 export const remove: Handler = async (req, res, next) => {
   try {
-    await service.deleteListing(req.params.id, req.user!.userId, req.user!.role);
+    await service.deleteListing(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
     sendSuccess(res, null, "Listing deleted");
   } catch (error) {
     next(error);
@@ -109,7 +113,11 @@ export const transition: Handler = async (req, res, next) => {
       req.user!.userId,
       req.user!.role,
     );
-    sendSuccess(res, listing, `Listing ${(req.body as TransitionInput).action}`);
+    sendSuccess(
+      res,
+      listing,
+      `Listing ${(req.body as TransitionInput).action}`,
+    );
   } catch (error) {
     next(error);
   }
@@ -139,7 +147,9 @@ export const uploadPhotos: Handler = async (req, res, next) => {
   try {
     const files = (req.files as Express.Multer.File[]) ?? [];
     const uploaded = await Promise.all(
-      files.map((f) => uploadPublic(f.buffer, `listings/${req.params.id}/photos`)),
+      files.map((f) =>
+        uploadPublic(f.buffer, `listings/${req.params.id}/photos`),
+      ),
     );
     const listing = await service.addPhotos(
       req.params.id,
@@ -196,7 +206,11 @@ export const uploadDocuments: Handler = async (req, res, next) => {
       req.user!.userId,
       req.user!.role,
     );
-    sendCreated(res, { listingId: listing.id, documents: docs }, "Documents uploaded");
+    sendCreated(
+      res,
+      { listingId: listing.id, documents: docs },
+      "Documents uploaded",
+    );
   } catch (error) {
     next(error);
   }
@@ -267,6 +281,47 @@ export const title: Handler = async (req, res, next) => {
       req.user?.role ?? null,
     );
     sendSuccess(res, info, "On-chain title");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const suspendCertificate: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.disputeOnChainTitle(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Certificate suspended");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const restoreCertificate: Handler = async (req, res, next) => {
+  try {
+    const listing = await service.clearOnChainTitleDispute(
+      req.params.id,
+      (req.body as { reason: string }).reason,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, listing, "Certificate restored");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const certificate: Handler = async (req, res, next) => {
+  try {
+    const info = await service.getCertificate(
+      req.params.id,
+      req.user?.userId ?? null,
+      req.user?.role ?? null,
+    );
+    sendSuccess(res, info, "Certificate view");
   } catch (error) {
     next(error);
   }

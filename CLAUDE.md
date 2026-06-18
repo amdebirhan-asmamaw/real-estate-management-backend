@@ -18,6 +18,11 @@ npm run test:coverage  # Jest with coverage
 # Run a single test file or by name
 npx jest tests/auth.test.ts
 npx jest -t "logs in with valid credentials"
+
+# Seed scripts (need a reachable Mongo + .env)
+npm run seed:super-admin   # idempotent; requires SUPER_ADMIN_EMAIL/PASSWORD env
+npm run seed:users         # one user per role with predictable credentials
+npm run seed:listings      # 10 sample listings; run seed:users first
 ```
 
 Requires Node >= 20. CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build; keep all four green. Husky + `lint-staged` run `eslint --fix` and `prettier --write` on staged `src/**/*.ts` at commit time, so commits are auto-formatted.
@@ -67,6 +72,15 @@ This is the backend for a verified, decentralized real-estate platform, built in
 - **Audit log** (`src/modules/audit/`): every lifecycle transition and document review writes a queryable `AuditLog` entry via best-effort `record()` (failures never break the business op).
 - **Uploader is mockable:** tests `jest.mock("../src/core/utils/uploader", …)` to avoid real Cloudinary calls.
 - **Favorites & inquiries** (`src/modules/favorites`, `src/modules/inquiries`, Increment 1.5): any authenticated user saves/unsaves listings (unique `(user, listing)`) and sends inquiries; both reuse `listing.service.getListingById` to enforce published-only visibility. Inquiries denormalize `listingOwner`; only that owner or an admin may respond/update.
+- **Transaction modules** (Increment 1.5+): the marketplace's deal flow is split into vertical slices that all reuse `listing.service` for published-only visibility and emit `notifications` + `listingAnalytics` events as side effects.
+  - **Offers** (`src/modules/offers/`): purchase offers on **`sale` listings only**; you can't offer on your own listing. State machine `submitted → accepted | rejected | countered | cancelled`. Denormalizes `listingOwner`; only the owner/admin responds. Accepting an offer calls `purchaseTransactions.createFromAcceptedOffer` and runs `compliance.flagOfferIfHighRisk`.
+  - **Purchase transactions** (`src/modules/purchaseTransactions/`): opened from an accepted offer (idempotent on `offer`). Status flow `offer_accepted → deposit_pending → deposit_received → closing_review → title_transfer_pending → completed` (+ `cancelled`, `disputed`), with an embedded `timeline` audit array and a `closingChecklist`. Sets the listing's `availabilityStatus` to `under_offer`.
+  - **Rental applications** (`src/modules/rentalApplications/`): tenant applies to a listing; `submitted → screening → approved | rejected | withdrawn → lease_created`. Carries a `screening` sub-doc and an `appointment` (viewing) sub-doc. `landlord`/`tenant` are denormalized; only landlord/admin manage, both parties + admin can view. Approval can spawn a lease via `leases.service`.
+  - **Saved searches** (`src/modules/savedSearches/`): per-user named `query` blobs with `alertEnabled`. On listing publish, matching saved searches fire a `saved_search.match` notification. Strictly owner-scoped (`{ _id, user }`).
+  - **Notifications** (`src/modules/notifications/`): in-app inbox. `notify()` is **best-effort** (logs and swallows on failure — never break the business op). The full event taxonomy is the `NOTIFICATION_TYPES` enum in `notification.model.ts`; add new types there. Strictly recipient-scoped.
+  - **Listing analytics** (`src/modules/listingAnalytics/`): append-only `ListingEvent` log (`view`, `favorite`, `inquiry`, `offer`, `rental_application`). `trackEvent()` is called from the other modules; `getListingAnalytics` aggregates counts/unique-viewers/conversion and is owner-or-admin gated.
+  - **Compliance** (`src/modules/compliance/`): `ComplianceCase` (with severity + notes), `RiskScore` (auto-leveled by score thresholds), `Screening`, and `BrokerLicense` review. `openCase` dedupes on `(type, targetId)`. High-value offers (≥ 1,000,000) auto-flag.
+  - **Chain transactions** (`src/modules/chainTransactions/`): durable ledger for on-chain ops (`title.mint`, `lease_escrow.*`). Lifecycle `pending → mined → confirmed` (+ `reverted`/`stale`/`reconciled`/`failed`); `reconcile` reads receipts via an ethers `JsonRpcProvider` to confirm/expire pending txs. This is the backing store for the chain-reconciliation job referenced in the blockchain notes.
 - **On-chain titles** (`src/core/blockchain/`, Increment 2): `propertyTitle.service.ts` (ethers v6) mints/reads a `PropertyTitle` ERC-721. `listing.service.mintTitle` is an admin-only, mint-once action requiring a verified listing; it records `tokenId`/`contractAddress`/`blockchainTxHash`/`titleCertificateId` and audits `listing.title_minted`. `getTitleInfo` compares the on-chain hash to `ownershipDocumentHash`. Minting is **custodial** (platform wallet) for now. The contract lives in the separate `real-estate-contracts` Hardhat repo (scaffolded: `PropertyTitle.sol`, tests, deploy + `export-abi`); `propertyTitle.abi.ts` is parity-matched with its compiled ABI. Chain env (`BLOCKCHAIN_RPC_URL`, `TITLE_CONTRACT_ADDRESS`, `MINTER_PRIVATE_KEY`) is optional; the service is mocked in tests like the uploader. The lease flow calls the escrow chain before persisting state; a reconciliation job that reads on-chain escrow state via getEscrow is future work.
 
 ## Lease escrow flow (backend wiring)

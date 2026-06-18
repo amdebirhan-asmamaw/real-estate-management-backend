@@ -9,6 +9,7 @@ import {
   Screening,
 } from "./compliance.model";
 import { User } from "../auth/auth.model";
+import { Listing } from "../listings/listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
@@ -16,6 +17,7 @@ import type {
   BrokerLicenseInput,
   ComplianceCaseQuery,
   CreateScreeningInput,
+  FlagCaseInput,
   ReviewBrokerLicenseInput,
   UpdateComplianceCaseInput,
 } from "./compliance.validation";
@@ -80,13 +82,29 @@ export const openCase = async (input: {
     metadata: { type: input.type, severity: input.severity },
   });
 
+  // Notify the affected subject best-effort.
+  if (input.subjectUser) {
+    try {
+      await notifications.notify({
+        recipient: input.subjectUser,
+        type: "compliance.case_opened",
+        title: "Compliance case opened",
+        message: `A compliance case (${input.type}) has been opened regarding your account.`,
+        metadata: {
+          caseId: created.id,
+          type: input.type,
+          severity: input.severity,
+        },
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   return created;
 };
 
-export const flagKycRejection = async (
-  userId: string,
-  note?: string,
-) =>
+export const flagKycRejection = async (userId: string, note?: string) =>
   openCase({
     type: "kyc",
     severity: "medium",
@@ -165,7 +183,10 @@ export const listCases = async (query: ComplianceCaseQuery) => {
 
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([
-    ComplianceCase.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(query.limit),
+    ComplianceCase.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(query.limit),
     ComplianceCase.countDocuments(filter),
   ]);
   return { items, total, page: query.page, limit: query.limit };
@@ -178,7 +199,8 @@ export const updateCase = async (
   actorRole: string,
 ) => {
   const item = await ComplianceCase.findById(id);
-  if (!item) throw new AppError("Compliance case not found", StatusCodes.NOT_FOUND);
+  if (!item)
+    throw new AppError("Compliance case not found", StatusCodes.NOT_FOUND);
 
   if (input.status) item.status = input.status;
   if (input.severity) item.severity = input.severity;
@@ -279,7 +301,10 @@ export const listBrokerLicenses = async (query: {
   if (query.status) filter.status = query.status;
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([
-    BrokerLicense.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(query.limit),
+    BrokerLicense.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(skip)
+      .limit(query.limit),
     BrokerLicense.countDocuments(filter),
   ]);
   return { items, total, page: query.page, limit: query.limit };
@@ -291,7 +316,8 @@ export const reviewBrokerLicense = async (
   adminId: string,
 ) => {
   const license = await BrokerLicense.findById(id);
-  if (!license) throw new AppError("Broker license not found", StatusCodes.NOT_FOUND);
+  if (!license)
+    throw new AppError("Broker license not found", StatusCodes.NOT_FOUND);
 
   license.status =
     input.decision === "approve"
@@ -313,4 +339,74 @@ export const reviewBrokerLicense = async (
   });
 
   return license;
+};
+
+// ─── Admin Flag (B2) ──────────────────────────────────────────────────────────
+
+/**
+ * Opens a ComplianceCase from an explicit admin flag action.
+ * For targetType "listing", the listing's owner is resolved as subjectUser so
+ * the notification reaches them. For other target types the adminId is recorded
+ * as actor in the audit log but no subjectUser notification is sent unless a
+ * direct user lookup is possible.
+ */
+export const adminFlagCase = async (
+  input: FlagCaseInput,
+  adminId: string,
+  adminRole: string,
+) => {
+  let subjectUserId: string | undefined;
+
+  if (input.targetType === "listing") {
+    const listing = await Listing.findById(input.targetId).select("createdBy");
+    if (!listing)
+      throw new AppError("Listing not found", StatusCodes.NOT_FOUND);
+    subjectUserId = listing.createdBy.toString();
+  } else if (input.targetType === "user") {
+    const user = await User.findById(input.targetId).select("_id");
+    if (!user) throw new AppError("User not found", StatusCodes.NOT_FOUND);
+    subjectUserId = user.id as string;
+  }
+
+  // Check if an open case already exists before calling openCase so we can
+  // detect create-vs-existing without refactoring openCase's return value.
+  const existingCase = input.targetId
+    ? await ComplianceCase.findOne({
+        type: input.targetType as ComplianceCaseType,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        status: { $in: ["open", "under_review"] },
+      })
+    : null;
+
+  const complianceCase = await openCase({
+    type: input.targetType as ComplianceCaseType,
+    severity: input.severity as ComplianceSeverity,
+    title: input.title,
+    description: input.description,
+    subjectUser: subjectUserId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    metadata: { reason: "suspicious", flaggedBy: adminId },
+  });
+
+  // Only write the explicit admin audit when openCase actually created a new
+  // case (not when it returned an existing open case — openCase already wrote
+  // compliance.case_created in that path).
+  if (!existingCase) {
+    await audit.record({
+      actor: adminId,
+      actorRole: adminRole,
+      action: "compliance.case_created",
+      targetType: "compliance",
+      targetId: complianceCase.id as string,
+      metadata: {
+        targetType: input.targetType,
+        targetId: input.targetId,
+        severity: input.severity,
+      },
+    });
+  }
+
+  return complianceCase;
 };

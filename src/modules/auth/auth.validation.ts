@@ -12,32 +12,36 @@ export const registerSchema = Joi.object({
     "string.max": "Name cannot exceed 100 characters",
     "any.required": "Name is required",
   }),
-  email: Joi.string().email({ tlds: { allow: false } }).required().messages({
-    "string.email": "Invalid email address",
-    "any.required": "Email is required",
-  }),
-  password: passwordSchema
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
     .required()
     .messages({
-      "string.min": "Password must be at least 8 characters",
-      "string.pattern.name": "Password must contain at least one {#name}",
-      "any.required": "Password is required",
+      "string.email": "Invalid email address",
+      "any.required": "Email is required",
     }),
+  password: passwordSchema.required().messages({
+    "string.min": "Password must be at least 8 characters",
+    "string.pattern.name": "Password must contain at least one {#name}",
+    "any.required": "Password is required",
+  }),
   // Self-registration is limited to public-facing roles. admin/super_admin
   // are provisioned out-of-band (seed/admin action).
   role: Joi.string()
     .valid(...PUBLIC_REGISTRATION_ROLES)
     .default("tenant")
     .messages({
-    "any.only": "role must be one of property_owner, tenant",
-  }),
+      "any.only": "role must be one of property_owner, tenant",
+    }),
 });
 
 export const loginSchema = Joi.object({
-  email: Joi.string().email({ tlds: { allow: false } }).required().messages({
-    "string.email": "Invalid email address",
-    "any.required": "Email is required",
-  }),
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .required()
+    .messages({
+      "string.email": "Invalid email address",
+      "any.required": "Email is required",
+    }),
   password: Joi.string().min(1).required().messages({
     "any.required": "Password is required",
   }),
@@ -89,7 +93,7 @@ export const walletLinkSchema = Joi.object({
 });
 
 export const updateProfileSchema = Joi.object({
-  name: Joi.string().min(2).max(100).messages({
+  name: Joi.string().trim().min(2).max(100).messages({
     "string.min": "Name must be at least 2 characters",
     "string.max": "Name cannot exceed 100 characters",
   }),
@@ -106,10 +110,13 @@ export const updateProfileSchema = Joi.object({
   });
 
 export const forgotPasswordSchema = Joi.object({
-  email: Joi.string().email({ tlds: { allow: false } }).required().messages({
-    "string.email": "Invalid email address",
-    "any.required": "Email is required",
-  }),
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .required()
+    .messages({
+      "string.email": "Invalid email address",
+      "any.required": "Email is required",
+    }),
 });
 
 export const resetPasswordSchema = Joi.object({

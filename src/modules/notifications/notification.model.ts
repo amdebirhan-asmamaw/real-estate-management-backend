@@ -25,6 +25,8 @@ export const NOTIFICATION_TYPES = [
   "lease.status_update",
   // Compliance
   "compliance.case_update",
+  "compliance.case_opened",
+  "admin.review_requested",
   // Purchase transactions
   "purchase.status_update",
   // Rental applications

@@ -1,5 +1,5 @@
 import { StatusCodes } from "http-status-codes";
-import { parseUnits } from "ethers";
+import { Types } from "mongoose";
 import { Lease, ILease, LeaseStatus } from "./lease.model";
 import { Listing } from "../listings/listing.model";
 import { User } from "../auth/auth.model";
@@ -18,9 +18,10 @@ const ADMIN_ROLES = ["admin", "super_admin"];
 const isAdmin = (role: string | null): boolean =>
   role !== null && ADMIN_ROLES.includes(role);
 
-const TOKEN_DECIMALS = 18;
-const toBaseUnits = (amount: number): bigint =>
-  parseUnits(amount.toString(), TOKEN_DECIMALS);
+// Amount scaling uses the token's actual decimals (read on first use from the
+// token contract and cached).  Delegates to leaseEscrow.service.toBaseUnits.
+const toBaseUnits = (amount: number): Promise<bigint> =>
+  escrow.toBaseUnits(amount);
 
 const trackEscrowTx = async <T extends { txHash: string }>(
   input: {
@@ -64,9 +65,16 @@ const isParty = (lease: ILease, userId: string | null): boolean =>
   !!userId &&
   (lease.landlord.toString() === userId || lease.tenant.toString() === userId);
 
-const ensureLandlordOrAdmin = (lease: ILease, userId: string, role: string): void => {
+const ensureLandlordOrAdmin = (
+  lease: ILease,
+  userId: string,
+  role: string,
+): void => {
   if (!isAdmin(role) && lease.landlord.toString() !== userId) {
-    throw new AppError("Only the landlord or an admin may do this", StatusCodes.FORBIDDEN);
+    throw new AppError(
+      "Only the landlord or an admin may do this",
+      StatusCodes.FORBIDDEN,
+    );
   }
 };
 
@@ -111,13 +119,22 @@ export const createLease = async (
   const listing = await Listing.findById(input.listingId);
   if (!listing) throw new AppError("Listing not found", StatusCodes.NOT_FOUND);
   if (listing.listingType !== "rent") {
-    throw new AppError("Leases require a rent listing", StatusCodes.BAD_REQUEST);
+    throw new AppError(
+      "Leases require a rent listing",
+      StatusCodes.BAD_REQUEST,
+    );
   }
   if (listing.status !== "published") {
-    throw new AppError("Leases require a published listing", StatusCodes.BAD_REQUEST);
+    throw new AppError(
+      "Leases require a published listing",
+      StatusCodes.BAD_REQUEST,
+    );
   }
   if (!isAdmin(actorRole) && listing.createdBy.toString() !== userId) {
-    throw new AppError("Only the listing owner may create a lease", StatusCodes.FORBIDDEN);
+    throw new AppError(
+      "Only the listing owner may create a lease",
+      StatusCodes.FORBIDDEN,
+    );
   }
   const tenant = await User.findById(input.tenantId);
   if (!tenant) throw new AppError("Tenant not found", StatusCodes.NOT_FOUND);
@@ -143,14 +160,19 @@ export const createLease = async (
     createdBy: userId,
   });
   await audit.record({
-    actor: userId, actorRole, action: "lease.created",
-    targetType: "lease", targetId: lease.id,
+    actor: userId,
+    actorRole,
+    action: "lease.created",
+    targetType: "lease",
+    targetId: lease.id,
   });
   return lease;
 };
 
 export const propose = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   const lease = await findOr404(id);
   ensureLandlordOrAdmin(lease, userId, role);
@@ -172,14 +194,57 @@ export const propose = async (
   lease.status = "proposed";
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.proposed",
-    targetType: "lease", targetId: lease.id,
+    actor: userId,
+    actorRole: role,
+    action: "lease.proposed",
+    targetType: "lease",
+    targetId: lease.id,
   });
   await notifyLeaseParties(
     lease,
     "Lease proposed",
     "A lease has been proposed and is ready for escrow funding.",
   );
+  return lease;
+};
+
+export const sign = async (
+  id: string,
+  userId: string,
+  role: string,
+  tenantSignature?: string,
+): Promise<ILease> => {
+  const lease = await findOr404(id);
+  // Only the tenant of this lease (or an admin acting on their behalf) may sign.
+  if (!isAdmin(role) && lease.tenant.toString() !== userId) {
+    throw new AppError(
+      "Only the tenant of this lease may sign it",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+  ensureState(lease, ["proposed"]);
+  lease.signedByTenantAt = new Date();
+  if (tenantSignature !== undefined) {
+    lease.tenantSignature = tenantSignature;
+  }
+  await lease.save();
+  await audit.record({
+    actor: userId,
+    actorRole: role,
+    action: "lease.signed",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { tenantSignature },
+  });
+  // Notify landlord that the tenant has signed.
+  await notifications.notify({
+    recipient: lease.landlord.toString(),
+    type: "lease.status_update",
+    title: "Tenant signed the lease",
+    message:
+      "The tenant has signed the lease. You may now proceed to fund escrow.",
+    metadata: { leaseId: lease.id, status: lease.status },
+  });
   return lease;
 };
 
@@ -190,11 +255,19 @@ export const propose = async (
 // re-issuing a transition (e.g. double-fund), and getEscrow() exposes the
 // on-chain truth for a future reconciliation job. See CLAUDE.md.
 export const fund = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
   ensureState(lease, ["proposed"]);
+  if (!lease.signedByTenantAt) {
+    throw new AppError(
+      "Tenant must sign the lease before escrow can be funded",
+      StatusCodes.CONFLICT,
+    );
+  }
   if (lease.escrow.state !== "none") {
     throw new AppError("Escrow already funded", StatusCodes.CONFLICT);
   }
@@ -222,7 +295,10 @@ export const fund = async (
     );
   }
   if (!lease.termsHash) {
-    throw new AppError("Lease has no terms hash; propose it first", StatusCodes.CONFLICT);
+    throw new AppError(
+      "Lease has no terms hash; propose it first",
+      StatusCodes.CONFLICT,
+    );
   }
   const result = await trackEscrowTx(
     {
@@ -232,14 +308,15 @@ export const fund = async (
       metadata: { leaseId: lease.id },
     },
     () =>
-      escrow.openAndFundEscrow({
-        leaseId: lease.id,
-        landlord: landlord.walletAddress!,
-        tenant: tenant.walletAddress!,
-        rentAmount: toBaseUnits(lease.monthlyRent),
-        depositAmount: toBaseUnits(lease.depositAmount),
-        termsHash: lease.termsHash!,
-      }),
+      (async () =>
+        escrow.openAndFundEscrow({
+          leaseId: lease.id,
+          landlord: landlord.walletAddress!,
+          tenant: tenant.walletAddress!,
+          rentAmount: await toBaseUnits(lease.monthlyRent),
+          depositAmount: await toBaseUnits(lease.depositAmount),
+          termsHash: lease.termsHash!,
+        }))(),
   );
   lease.escrow.escrowId = result.escrowId;
   lease.escrow.contractAddress = env.ESCROW_CONTRACT_ADDRESS;
@@ -250,8 +327,11 @@ export const fund = async (
   lease.escrow.tenantWallet = tenant.walletAddress;
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.escrow_funded",
-    targetType: "lease", targetId: lease.id,
+    actor: userId,
+    actorRole: role,
+    action: "lease.escrow_funded",
+    targetType: "lease",
+    targetId: lease.id,
     metadata: { escrowId: result.escrowId, txHash: result.txHash },
   });
   await notifyLeaseParties(
@@ -278,7 +358,9 @@ const requireActiveEscrow = (lease: ILease): string => {
 };
 
 export const activate = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
@@ -298,8 +380,12 @@ export const activate = async (
   lease.escrow.activateTxHash = tx.txHash;
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.activated",
-    targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
+    actor: userId,
+    actorRole: role,
+    action: "lease.activated",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { txHash: tx.txHash },
   });
   await notifyLeaseParties(
     lease,
@@ -311,7 +397,9 @@ export const activate = async (
 };
 
 export const cancel = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   const lease = await findOr404(id);
   if (!isAdmin(role) && !isParty(lease, userId)) {
@@ -335,8 +423,11 @@ export const cancel = async (
   lease.status = "cancelled";
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.cancelled",
-    targetType: "lease", targetId: lease.id,
+    actor: userId,
+    actorRole: role,
+    action: "lease.cancelled",
+    targetType: "lease",
+    targetId: lease.id,
   });
   await notifyLeaseParties(
     lease,
@@ -348,7 +439,9 @@ export const cancel = async (
 };
 
 export const complete = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
@@ -368,8 +461,12 @@ export const complete = async (
   lease.escrow.settleTxHash = tx.txHash;
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.completed",
-    targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
+    actor: userId,
+    actorRole: role,
+    action: "lease.completed",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { txHash: tx.txHash },
   });
   await notifyLeaseParties(
     lease,
@@ -381,7 +478,9 @@ export const complete = async (
 };
 
 export const terminate = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
@@ -401,8 +500,12 @@ export const terminate = async (
   lease.escrow.settleTxHash = tx.txHash;
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.terminated",
-    targetType: "lease", targetId: lease.id, metadata: { txHash: tx.txHash },
+    actor: userId,
+    actorRole: role,
+    action: "lease.terminated",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { txHash: tx.txHash },
   });
   await notifyLeaseParties(
     lease,
@@ -414,7 +517,10 @@ export const terminate = async (
 };
 
 export const dispute = async (
-  id: string, userId: string, role: string,
+  id: string,
+  userId: string,
+  role: string,
+  reason?: string,
 ): Promise<ILease> => {
   const lease = await findOr404(id);
   if (!isAdmin(role) && !isParty(lease, userId)) {
@@ -422,15 +528,25 @@ export const dispute = async (
   }
   ensureState(lease, ["proposed", "active"]);
   lease.status = "disputed";
+  lease.dispute = {
+    openedBy: new Types.ObjectId(userId),
+    openedAt: new Date(),
+    reason,
+  };
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.disputed",
-    targetType: "lease", targetId: lease.id,
+    actor: userId,
+    actorRole: role,
+    action: "lease.disputed",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { reason },
   });
   await notifyLeaseParties(
     lease,
     "Lease disputed",
     "A dispute was opened for this lease.",
+    { reason },
   );
   await compliance.flagLeaseDispute({
     leaseId: lease.id,
@@ -440,20 +556,82 @@ export const dispute = async (
   return lease;
 };
 
+export const respondToDispute = async (
+  id: string,
+  userId: string,
+  role: string,
+  response: string,
+): Promise<ILease> => {
+  const lease = await findOr404(id);
+  ensureState(lease, ["disputed"]);
+  // Only the counterparty (the party who did NOT open the dispute) or admin may respond.
+  if (!isAdmin(role)) {
+    if (!isParty(lease, userId)) {
+      throw new AppError("Not allowed", StatusCodes.FORBIDDEN);
+    }
+    const openedBy = lease.dispute?.openedBy?.toString();
+    if (openedBy && openedBy === userId) {
+      throw new AppError(
+        "The party who opened the dispute cannot respond to their own dispute",
+        StatusCodes.FORBIDDEN,
+      );
+    }
+  }
+  if (!lease.dispute) {
+    // Initialise dispute sub-doc if somehow missing (shouldn't normally happen).
+    lease.dispute = {};
+  }
+  lease.dispute.response = response;
+  lease.dispute.respondedBy = new Types.ObjectId(userId);
+  lease.dispute.respondedAt = new Date();
+  await lease.save();
+  await audit.record({
+    actor: userId,
+    actorRole: role,
+    action: "lease.dispute_responded",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: { response },
+  });
+  // Notify the other party (the opener, or both parties if opened by admin/unknown).
+  const openedById = lease.dispute.openedBy?.toString();
+  const notifyRecipient =
+    openedById && openedById !== userId
+      ? openedById
+      : lease.landlord.toString() !== userId
+        ? lease.landlord.toString()
+        : lease.tenant.toString();
+  await notifications.notify({
+    recipient: notifyRecipient,
+    type: "lease.status_update",
+    title: "Dispute response received",
+    message: "The counterparty has responded to the dispute.",
+    metadata: { leaseId: lease.id, status: lease.status, response },
+  });
+  return lease;
+};
+
 export const resolveDispute = async (
-  id: string, input: DisputeResolveInput, userId: string, role: string,
+  id: string,
+  input: DisputeResolveInput,
+  userId: string,
+  role: string,
 ): Promise<ILease> => {
   if (!isAdmin(role)) throw new AppError("Admin only", StatusCodes.FORBIDDEN);
   const lease = await findOr404(id);
   ensureState(lease, ["disputed"]);
   const escrowId = lease.escrow.escrowId;
-  if (!escrowId) throw new AppError("No escrow to settle", StatusCodes.CONFLICT);
+  if (!escrowId)
+    throw new AppError("No escrow to settle", StatusCodes.CONFLICT);
 
   let tx: { txHash: string };
   let finalStatus: LeaseStatus;
   if (input.decision === "cancel") {
     if (lease.escrow.state !== "funded") {
-      throw new AppError("Can only cancel a funded (pre-activation) escrow", StatusCodes.CONFLICT);
+      throw new AppError(
+        "Can only cancel a funded (pre-activation) escrow",
+        StatusCodes.CONFLICT,
+      );
     }
     tx = await trackEscrowTx(
       {
@@ -467,7 +645,10 @@ export const resolveDispute = async (
     finalStatus = "cancelled";
   } else {
     if (lease.escrow.state !== "active") {
-      throw new AppError("Deposit settlement requires an active escrow", StatusCodes.CONFLICT);
+      throw new AppError(
+        "Deposit settlement requires an active escrow",
+        StatusCodes.CONFLICT,
+      );
     }
     tx =
       input.decision === "release_deposit"
@@ -489,16 +670,25 @@ export const resolveDispute = async (
             },
             () => escrow.refundDeposit(escrowId),
           );
-    finalStatus = input.decision === "release_deposit" ? "terminated" : "completed";
+    finalStatus =
+      input.decision === "release_deposit" ? "terminated" : "completed";
   }
   lease.status = finalStatus;
   lease.escrow.state = "closed";
   lease.escrow.settleTxHash = tx.txHash;
   await lease.save();
   await audit.record({
-    actor: userId, actorRole: role, action: "lease.dispute_resolved",
-    targetType: "lease", targetId: lease.id,
-    metadata: { decision: input.decision, note: input.note, txHash: tx.txHash },
+    actor: userId,
+    actorRole: role,
+    action: "lease.dispute_resolved",
+    targetType: "lease",
+    targetId: lease.id,
+    metadata: {
+      decision: input.decision,
+      note: input.note,
+      txHash: tx.txHash,
+      disputeResponse: lease.dispute?.response,
+    },
   });
   await notifyLeaseParties(
     lease,
@@ -510,10 +700,14 @@ export const resolveDispute = async (
 };
 
 export const listMine = async (userId: string): Promise<ILease[]> =>
-  Lease.find({ $or: [{ landlord: userId }, { tenant: userId }] }).sort({ createdAt: -1 });
+  Lease.find({ $or: [{ landlord: userId }, { tenant: userId }] }).sort({
+    createdAt: -1,
+  });
 
 export const getLeaseById = async (
-  id: string, userId: string | null, role: string | null,
+  id: string,
+  userId: string | null,
+  role: string | null,
 ): Promise<ILease> => {
   const lease = await findOr404(id);
   if (!isAdmin(role) && !isParty(lease, userId)) {
@@ -523,8 +717,13 @@ export const getLeaseById = async (
 };
 
 export const getEscrowInfo = async (
-  id: string, userId: string | null, role: string | null,
-): Promise<{ lease: ILease; onChain: Awaited<ReturnType<typeof escrow.getEscrow>> | null }> => {
+  id: string,
+  userId: string | null,
+  role: string | null,
+): Promise<{
+  lease: ILease;
+  onChain: Awaited<ReturnType<typeof escrow.getEscrow>> | null;
+}> => {
   const lease = await getLeaseById(id, userId, role);
   const onChain = lease.escrow.escrowId
     ? await escrow.getEscrow(lease.escrow.escrowId)

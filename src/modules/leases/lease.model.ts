@@ -23,6 +23,15 @@ export interface ILeaseEscrow {
   tenantWallet?: string;
 }
 
+export interface ILeaseDispute {
+  openedBy?: Types.ObjectId;
+  openedAt?: Date;
+  reason?: string;
+  response?: string;
+  respondedBy?: Types.ObjectId;
+  respondedAt?: Date;
+}
+
 export interface ILease extends Document {
   listing: Types.ObjectId;
   landlord: Types.ObjectId;
@@ -37,6 +46,9 @@ export interface ILease extends Document {
   termsHash?: string;
   status: LeaseStatus;
   escrow: ILeaseEscrow;
+  signedByTenantAt?: Date;
+  tenantSignature?: string;
+  dispute?: ILeaseDispute;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -61,11 +73,38 @@ const escrowSchema = new Schema<ILeaseEscrow>(
   { _id: false },
 );
 
+const disputeSubSchema = new Schema<ILeaseDispute>(
+  {
+    openedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    openedAt: Date,
+    reason: String,
+    response: String,
+    respondedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    respondedAt: Date,
+  },
+  { _id: false },
+);
+
 const leaseSchema = new Schema<ILease>(
   {
-    listing: { type: Schema.Types.ObjectId, ref: "Listing", required: true, index: true },
-    landlord: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    tenant: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    listing: {
+      type: Schema.Types.ObjectId,
+      ref: "Listing",
+      required: true,
+      index: true,
+    },
+    landlord: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    tenant: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     currency: { type: String, default: "USD", uppercase: true },
     monthlyRent: { type: Number, required: true, min: 0 },
     depositAmount: { type: Number, required: true, min: 0 },
@@ -89,7 +128,15 @@ const leaseSchema = new Schema<ILease>(
       index: true,
     },
     escrow: { type: escrowSchema, default: () => ({ state: "none" }) },
-    createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    signedByTenantAt: Date,
+    tenantSignature: String,
+    dispute: { type: disputeSubSchema },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

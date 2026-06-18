@@ -21,7 +21,10 @@ export const submit: Handler = async (req, res, next) => {
       "other") as KycDocumentType;
     const docs = await Promise.all(
       files.map(async (f) => {
-        const { publicId } = await uploadPrivate(f.buffer, `kyc/${req.user!.userId}`);
+        const { publicId } = await uploadPrivate(
+          f.buffer,
+          `kyc/${req.user!.userId}`,
+        );
         return { type, publicId, hash: sha256(f.buffer) };
       }),
     );
@@ -99,6 +102,19 @@ export const adminGetUserDocumentUrl: Handler = async (req, res, next) => {
       req.user!.role,
     );
     sendSuccess(res, { url }, "Signed URL");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const adminStartKycReview: Handler = async (req, res, next) => {
+  try {
+    const summary = await kyc.startKycReview(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, summary, "KYC review started");
   } catch (error) {
     next(error);
   }

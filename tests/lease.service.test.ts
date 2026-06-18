@@ -7,6 +7,8 @@ jest.mock("../src/core/blockchain/leaseEscrow.service", () => ({
   refundDeposit: jest.fn(async () => ({ txHash: "0xrefund" })),
   getEscrow: jest.fn(async () => ({ state: "funded" })),
   isConfigured: () => true,
+  // D2: token-decimals helper — return standard 18-decimal base units in tests.
+  toBaseUnits: jest.fn(async (amount: number) => BigInt(amount) * BigInt(10 ** 18)),
 }));
 
 import mongoose from "mongoose";
@@ -61,8 +63,14 @@ const makeLeaseInput = (listingId: string, tenantId: string) => ({
 const advanceToProposed = async (leaseId: string, landlordId: string) =>
   service.propose(leaseId, landlordId, "property_owner");
 
-const advanceToFunded = async (leaseId: string, adminId: string) =>
-  service.fund(leaseId, adminId, "admin");
+// Tenant signs before funding — required by the new sign gate.
+const advanceToSigned = async (leaseId: string, tenantId: string) =>
+  service.sign(leaseId, tenantId, "tenant");
+
+const advanceToFunded = async (leaseId: string, adminId: string, tenantId: string) => {
+  await advanceToSigned(leaseId, tenantId);
+  return service.fund(leaseId, adminId, "admin");
+};
 
 const advanceToActive = async (leaseId: string, adminId: string) =>
   service.activate(leaseId, adminId, "admin");
@@ -205,6 +213,98 @@ describe("lease.service state machine", () => {
     });
   });
 
+  // ── sign ─────────────────────────────────────────────────────────────────────
+
+  describe("sign", () => {
+    it("tenant can sign a proposed lease, sets signedByTenantAt", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      const signed = await service.sign(draft.id, tenant.id, "tenant");
+
+      expect(signed.signedByTenantAt).toBeInstanceOf(Date);
+      expect(signed.status).toBe("proposed");
+    });
+
+    it("tenant can sign with an optional tenantSignature string", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      const signed = await service.sign(draft.id, tenant.id, "tenant", "SIG_ABC");
+
+      expect(signed.tenantSignature).toBe("SIG_ABC");
+    });
+
+    it("non-tenant (landlord) cannot sign — throws FORBIDDEN", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await expect(
+        service.sign(draft.id, landlord.id, "property_owner"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("outsider (non-party) cannot sign — throws FORBIDDEN", async () => {
+      const outsider = await makeUser({ role: "tenant" });
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await expect(
+        service.sign(draft.id, outsider.id, "tenant"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("sign is only valid when lease is proposed — throws on draft", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await expect(
+        service.sign(draft.id, tenant.id, "tenant"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("funding before signing throws CONFLICT", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      // Do NOT sign — go straight to fund.
+      await expect(
+        service.fund(draft.id, admin.id, "admin"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("full propose → sign → fund flow succeeds", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToSigned(draft.id, tenant.id);
+      const funded = await service.fund(draft.id, admin.id, "admin");
+
+      expect(funded.escrow.state).toBe("funded");
+      expect(funded.signedByTenantAt).toBeInstanceOf(Date);
+    });
+  });
+
   // ── fund ─────────────────────────────────────────────────────────────────────
 
   describe("fund", () => {
@@ -216,6 +316,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
+      await advanceToSigned(draft.id, tenant.id);
       const funded = await service.fund(draft.id, admin.id, "admin");
 
       expect(chain.openAndFundEscrow).toHaveBeenCalled();
@@ -241,6 +342,8 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await service.propose(draft.id, noWalletLandlord.id, "property_owner");
+      // Tenant signs so the sign gate is cleared; should now hit the wallet gate.
+      await service.sign(draft.id, tenant.id, "tenant");
       await expect(
         service.fund(draft.id, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
@@ -254,6 +357,8 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await service.propose(draft.id, landlord.id, "property_owner");
+      // noWalletTenant signs so the sign gate is cleared; should now hit the wallet gate.
+      await service.sign(draft.id, noWalletTenant.id, "tenant");
       await expect(
         service.fund(draft.id, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
@@ -278,7 +383,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await expect(
         service.fund(draft.id, admin.id, "admin"),
       ).rejects.toBeInstanceOf(AppError);
@@ -296,7 +401,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       const active = await service.activate(draft.id, admin.id, "admin");
 
       expect(chain.activateEscrow).toHaveBeenCalledWith("1");
@@ -324,7 +429,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await expect(
         service.activate(draft.id, landlord.id, "property_owner"),
       ).rejects.toBeInstanceOf(AppError);
@@ -337,7 +442,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await expect(
         service.activate(draft.id, admin.id, "admin"),
@@ -356,7 +461,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       const completed = await service.complete(draft.id, admin.id, "admin");
 
@@ -372,7 +477,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await expect(
         service.complete(draft.id, landlord.id, "property_owner"),
@@ -391,7 +496,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       const terminated = await service.terminate(draft.id, admin.id, "admin");
 
@@ -407,7 +512,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await expect(
         service.terminate(draft.id, landlord.id, "property_owner"),
@@ -421,7 +526,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await service.complete(draft.id, admin.id, "admin");
       await expect(
@@ -441,7 +546,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       const cancelled = await service.cancel(
         draft.id,
         landlord.id,
@@ -460,7 +565,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       const cancelled = await service.cancel(draft.id, tenant.id, "tenant");
       expect(cancelled.status).toBe("cancelled");
     });
@@ -489,7 +594,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       const disputed = await service.dispute(draft.id, tenant.id, "tenant");
       expect(disputed.status).toBe("disputed");
@@ -503,7 +608,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await service.dispute(draft.id, tenant.id, "tenant");
       const resolved = await service.resolveDispute(
@@ -526,7 +631,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await service.dispute(draft.id, tenant.id, "tenant");
       const resolved = await service.resolveDispute(
@@ -549,7 +654,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       // Manually set to disputed without activating so escrow.state = "funded"
       await Lease.findByIdAndUpdate(draft.id, { status: "disputed" });
       const resolved = await service.resolveDispute(
@@ -571,7 +676,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await service.dispute(draft.id, tenant.id, "tenant");
       await expect(
@@ -591,7 +696,7 @@ describe("lease.service state machine", () => {
         "property_owner",
       );
       await advanceToProposed(draft.id, landlord.id);
-      await advanceToFunded(draft.id, admin.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
       await advanceToActive(draft.id, admin.id);
       await service.dispute(draft.id, tenant.id, "tenant");
       await expect(
@@ -613,6 +718,115 @@ describe("lease.service state machine", () => {
       await advanceToProposed(draft.id, landlord.id);
       const disputed = await service.dispute(draft.id, tenant.id, "tenant");
       expect(disputed.status).toBe("disputed");
+    });
+
+    it("dispute records openedBy, openedAt, and optional reason on sub-doc", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      const disputed = await service.dispute(
+        draft.id,
+        tenant.id,
+        "tenant",
+        "Payment was late",
+      );
+
+      expect(disputed.dispute).toBeDefined();
+      expect(disputed.dispute!.openedBy?.toString()).toBe(tenant.id);
+      expect(disputed.dispute!.openedAt).toBeInstanceOf(Date);
+      expect(disputed.dispute!.reason).toBe("Payment was late");
+    });
+
+    it("counterparty (landlord) can respond to dispute opened by tenant", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant", "Maintenance not done");
+      const responded = await service.respondToDispute(
+        draft.id,
+        landlord.id,
+        "property_owner",
+        "We completed all maintenance",
+      );
+
+      expect(responded.dispute!.response).toBe("We completed all maintenance");
+      expect(responded.dispute!.respondedBy?.toString()).toBe(landlord.id);
+      expect(responded.dispute!.respondedAt).toBeInstanceOf(Date);
+      expect(responded.status).toBe("disputed");
+    });
+
+    it("the dispute opener cannot respond to their own dispute — throws FORBIDDEN", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant");
+      await expect(
+        service.respondToDispute(draft.id, tenant.id, "tenant", "My own response"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("admin can respond to a dispute regardless of who opened it", async () => {
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant");
+      const responded = await service.respondToDispute(
+        draft.id,
+        admin.id,
+        "admin",
+        "Admin notes on the dispute",
+      );
+
+      expect(responded.dispute!.response).toBe("Admin notes on the dispute");
+    });
+
+    it("resolveDispute still works after a response has been recorded", async () => {
+      const chain = require("../src/core/blockchain/leaseEscrow.service");
+      const draft = await service.createLease(
+        makeLeaseInput(listing.id, tenant.id),
+        landlord.id,
+        "property_owner",
+      );
+      await advanceToProposed(draft.id, landlord.id);
+      await advanceToFunded(draft.id, admin.id, tenant.id);
+      await advanceToActive(draft.id, admin.id);
+      await service.dispute(draft.id, tenant.id, "tenant", "Deposit issue");
+      await service.respondToDispute(
+        draft.id,
+        landlord.id,
+        "property_owner",
+        "Deposit was handled correctly",
+      );
+      const resolved = await service.resolveDispute(
+        draft.id,
+        { decision: "refund_deposit", note: "Resolved in tenant favour" },
+        admin.id,
+        "admin",
+      );
+
+      expect(chain.refundDeposit).toHaveBeenCalledWith("1");
+      expect(resolved.status).toBe("completed");
+      expect(resolved.escrow.state).toBe("closed");
     });
   });
 });
