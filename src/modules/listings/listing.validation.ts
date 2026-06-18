@@ -255,6 +255,31 @@ export const neighborhoodAnalyticsSchema = Joi.object({
   region: Joi.string().max(200).allow(""),
 });
 
+export const bulkActionSchema = Joi.object({
+  actions: Joi.array()
+    .items(
+      Joi.object({
+        id: Joi.string().required(),
+        action: Joi.string()
+          .valid(...TRANSITION_ACTIONS)
+          .required(),
+        reason: Joi.string().valid(
+          "missing_document",
+          "invalid_ownership_proof",
+          "wrong_location",
+          "poor_quality",
+          "suspicious",
+          "duplicate",
+          "other",
+        ),
+        note: Joi.string().max(2000),
+      }),
+    )
+    .min(1)
+    .max(50)
+    .required(),
+});
+
 export const adminListSchema = Joi.object({
   status: Joi.string().valid(
     "draft",
@@ -383,4 +408,13 @@ export type AdminListQuery = {
 
 export type NeighborhoodAnalyticsQuery = {
   region?: string;
+};
+
+export type BulkActionInput = {
+  actions: Array<{
+    id: string;
+    action: TransitionAction;
+    reason?: RejectionCode;
+    note?: string;
+  }>;
 };

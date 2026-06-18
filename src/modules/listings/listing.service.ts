@@ -1426,6 +1426,43 @@ export const yieldDashboard = async (
   };
 };
 
+// ─── Bulk listing actions ────────────────────────────────────────────────────────
+
+import type { BulkActionInput } from "./listing.validation";
+
+export interface BulkActionResult {
+  id: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Applies a list of transition actions (up to 50) in sequence, collecting
+ * per-item success/failure without failing the entire batch on one error.
+ */
+export const bulkAction = async (
+  input: BulkActionInput,
+  userId: string,
+  role: string,
+): Promise<BulkActionResult[]> => {
+  const results: BulkActionResult[] = [];
+  for (const item of input.actions) {
+    try {
+      await transition(
+        item.id,
+        { action: item.action, reason: item.reason, note: item.note },
+        userId,
+        role,
+      );
+      results.push({ id: item.id, ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      results.push({ id: item.id, ok: false, error: message });
+    }
+  }
+  return results;
+};
+
 // ─── Neighborhood analytics ─────────────────────────────────────────────────────
 
 export interface NeighborhoodStat {

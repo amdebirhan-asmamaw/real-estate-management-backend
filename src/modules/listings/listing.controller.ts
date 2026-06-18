@@ -17,6 +17,7 @@ import type {
   DocumentReviewInput,
   AdminListQuery,
   NeighborhoodAnalyticsQuery,
+  BulkActionInput,
 } from "./listing.validation";
 import type { DocumentType } from "./listing.model";
 
@@ -446,6 +447,19 @@ export const yieldDashboard: Handler = async (req, res, next) => {
   try {
     const stats = await service.yieldDashboard(req.user!.userId);
     sendSuccess(res, stats, "Yield dashboard");
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const bulkAction: Handler = async (req, res, next) => {
+  try {
+    const results = await service.bulkAction(
+      req.body as BulkActionInput,
+      req.user!.userId,
+      req.user!.role,
+    );
+    sendSuccess(res, results, "Bulk action results");
   } catch (error) {
     next(error);
   }

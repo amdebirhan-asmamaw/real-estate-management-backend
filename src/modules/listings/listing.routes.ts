@@ -23,6 +23,7 @@ import {
   setCoverSchema,
   titleActionSchema,
   neighborhoodAnalyticsSchema,
+  bulkActionSchema,
 } from "./listing.validation";
 import {
   maintenanceRecordQuerySchema,
@@ -91,6 +92,13 @@ listingRouter.post(
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 
 // ─── Listing lifecycle ──────────────────────────────────────────────────────────
+listingRouter.post(
+  "/bulk-action",
+  authenticate,
+  managers,
+  validate(bulkActionSchema),
+  controller.bulkAction,
+);
 listingRouter.post(
   "/",
   authenticate,
