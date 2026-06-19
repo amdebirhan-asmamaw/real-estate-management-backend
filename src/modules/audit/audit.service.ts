@@ -1,5 +1,6 @@
 import { AuditLog, AuditAction, AuditTargetType } from "./audit.model";
 import { logger } from "../../core/utils/logger";
+import { getRequestId } from "../../core/utils/requestContext";
 
 interface RecordInput {
   actor: string;
@@ -16,13 +17,14 @@ interface RecordInput {
  */
 export const record = async (input: RecordInput): Promise<void> => {
   try {
+    const requestId = getRequestId();
     await AuditLog.create({
       actor: input.actor,
       actorRole: input.actorRole,
       action: input.action,
       targetType: input.targetType ?? "listing",
       targetId: input.targetId,
-      metadata: input.metadata,
+      metadata: requestId ? { ...input.metadata, requestId } : input.metadata,
     });
   } catch (error) {
     logger.error("Failed to write audit log:", error);

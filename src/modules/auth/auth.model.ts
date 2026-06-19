@@ -69,8 +69,11 @@ export interface IUser extends Document {
   kycExpiresAt?: Date;
   failedLoginAttempts: number;
   lastFailedLoginAt?: Date;
+  lockedUntil?: Date;
   passwordResetToken?: string;
   passwordResetExpires?: Date;
+  /** Granted capabilities for `admin` role users (super_admin has implicit full access). */
+  permissions: Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -162,11 +165,16 @@ const userSchema = new Schema<IUser>(
     },
     profileImage: { type: String, trim: true },
     // Groundwork for the later "mint to owner wallet" upgrade (custodial today).
+    // unique + sparse: two users cannot share a wallet; null/absent is allowed.
+    // WARNING: before this index builds in prod any pre-existing duplicate
+    // walletAddress values must be cleaned up or the index creation will fail.
     walletAddress: {
       type: String,
       lowercase: true,
       trim: true,
       match: [/^0x[a-fA-F0-9]{40}$/, "Please provide a valid wallet address"],
+      unique: true,
+      sparse: true,
     },
     walletStatus: {
       type: String,
@@ -180,8 +188,13 @@ const userSchema = new Schema<IUser>(
     kycExpiresAt: { type: Date },
     failedLoginAttempts: { type: Number, default: 0 },
     lastFailedLoginAt: Date,
+    lockedUntil: { type: Date, select: false },
     passwordResetToken: { type: String, select: false },
     passwordResetExpires: { type: Date, select: false },
+    permissions: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Permission" }],
+      default: [],
+    },
   },
   {
     timestamps: true,
@@ -196,6 +209,7 @@ const userSchema = new Schema<IUser>(
         delete ret.passwordResetExpires;
         delete ret.failedLoginAttempts;
         delete ret.lastFailedLoginAt;
+        delete ret.lockedUntil;
         return ret;
       },
     },

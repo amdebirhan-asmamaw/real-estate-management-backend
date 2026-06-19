@@ -79,10 +79,11 @@ cannot transfer contract ownership or change the token allowlist.
 
 ## 3. Testnet-only escrow stance
 
-`openAndFundEscrow` in both escrow services checks the provider's `chainId`
-at first use.  If the chain is **Ethereum mainnet (chainId 1)** and
+All money-moving escrow service methods check the provider's `chainId` at
+first use. If the chain is **Ethereum mainnet (chainId 1)** and
 `ALLOW_MAINNET_ESCROW` is not `true`, the call throws a 403 `AppError`
-before any transaction is sent.
+before any transaction is sent. This includes `openAndFund`, settlement,
+release, refund, cancellation, and activation operations.
 
 **Purpose:** prevent accidental real-money fund moves in staging or
 misconfigured environments where `BLOCKCHAIN_RPC_URL` is accidentally

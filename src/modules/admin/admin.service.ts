@@ -51,22 +51,37 @@ const guardStatusChange = (
 };
 
 // Build the user public detail (more complete than auth's toPublicUser).
-const toUserDetail = (user: IUser) => ({
-  id: user.id as string,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  phone: user.phone,
-  profileImage: user.profileImage,
-  accountStatus: user.accountStatus,
-  kycStatus: user.kycStatus,
-  emailVerified: user.emailVerified,
-  mustResetPassword: user.mustResetPassword,
-  walletAddress: user.walletAddress,
-  walletStatus: user.walletStatus,
-  createdAt: user.createdAt,
-  updatedAt: user.updatedAt,
-});
+const toUserDetail = async (user: IUser) => {
+  const base = {
+    id: user.id as string,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    phone: user.phone,
+    profileImage: user.profileImage,
+    accountStatus: user.accountStatus,
+    kycStatus: user.kycStatus,
+    emailVerified: user.emailVerified,
+    mustResetPassword: user.mustResetPassword,
+    walletAddress: user.walletAddress,
+    walletStatus: user.walletStatus,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+
+  if (user.role !== "admin") {
+    return base;
+  }
+
+  await user.populate("permissions");
+  const permissions = (user.permissions as unknown as Array<{ key: string; name: string }>).map(
+    (p) => ({ key: p.key, name: p.name }),
+  );
+
+  return { ...base, permissions };
+};
+
+type UserDetail = Awaited<ReturnType<typeof toUserDetail>>;
 
 // ─── Super Admin: Admin CRUD ────────────────────────────────────────────────────
 
@@ -74,7 +89,7 @@ export const createAdmin = async (
   input: CreateAdminInput,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   if (!isSuperAdmin(actorRole)) {
     throw new AppError(
       "Only a super admin can create admin accounts",
@@ -115,13 +130,13 @@ export const createAdmin = async (
       "Your admin account has been created. Please change your password on first login.",
   });
 
-  return toUserDetail(admin);
+  return await toUserDetail(admin);
 };
 
 export const listAdmins = async (
   query: ListAdminsQuery,
 ): Promise<{
-  items: ReturnType<typeof toUserDetail>[];
+  items: UserDetail[];
   total: number;
   page: number;
   limit: number;
@@ -140,7 +155,7 @@ export const listAdmins = async (
   ]);
 
   return {
-    items: items.map(toUserDetail),
+    items: await Promise.all(items.map((u) => toUserDetail(u))),
     total,
     page: query.page,
     limit: query.limit,
@@ -151,7 +166,7 @@ export const suspendAdmin = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   if (!isSuperAdmin(actorRole)) {
     throw new AppError(
       "Only a super admin can suspend admin accounts",
@@ -195,14 +210,14 @@ export const suspendAdmin = async (
       "Your admin account has been suspended. Contact your super admin for details.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 export const reactivateAdmin = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   if (!isSuperAdmin(actorRole)) {
     throw new AppError(
       "Only a super admin can reactivate admin accounts",
@@ -239,7 +254,7 @@ export const reactivateAdmin = async (
     message: "Your admin account has been reactivated.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 // ─── Admin + Super Admin: User Management ───────────────────────────────────────
@@ -247,7 +262,7 @@ export const reactivateAdmin = async (
 export const listUsers = async (
   query: ListUsersQuery,
 ): Promise<{
-  items: ReturnType<typeof toUserDetail>[];
+  items: UserDetail[];
   total: number;
   page: number;
   limit: number;
@@ -277,7 +292,7 @@ export const listUsers = async (
   ]);
 
   return {
-    items: items.map(toUserDetail),
+    items: await Promise.all(items.map((u) => toUserDetail(u))),
     total,
     page: query.page,
     limit: query.limit,
@@ -286,16 +301,16 @@ export const listUsers = async (
 
 export const getUserDetail = async (
   userId: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   const user = await findUserOr404(userId);
-  return toUserDetail(user);
+  return await toUserDetail(user);
 };
 
 export const suspendUser = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   const target = await findUserOr404(targetId);
   guardStatusChange(target, actorRole, "suspend");
 
@@ -327,14 +342,14 @@ export const suspendUser = async (
     message: "Your account has been suspended. Contact support for details.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 export const reactivateUser = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   const target = await findUserOr404(targetId);
   guardStatusChange(target, actorRole, "reactivate");
 
@@ -364,14 +379,14 @@ export const reactivateUser = async (
       "Your account has been reactivated. You may now use the platform again.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 export const revokeUserWallet = async (
   targetId: string,
   _actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   const target = await findUserOr404(targetId);
   guardStatusChange(target, actorRole, "revoke wallet for");
 
@@ -382,14 +397,14 @@ export const revokeUserWallet = async (
 
   // Re-fetch to return a fresh snapshot after the wallet was cleared.
   const updated = await findUserOr404(targetId);
-  return toUserDetail(updated);
+  return await toUserDetail(updated);
 };
 
 export const blockUser = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   const target = await findUserOr404(targetId);
   guardStatusChange(target, actorRole, "block");
 
@@ -421,7 +436,7 @@ export const blockUser = async (
     message: "Your account has been blocked due to a policy violation.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 // ─── Super Admin: Restore User (B3) ─────────────────────────────────────────
@@ -434,7 +449,7 @@ export const restoreUser = async (
   targetId: string,
   actorId: string,
   actorRole: string,
-): Promise<ReturnType<typeof toUserDetail>> => {
+): Promise<UserDetail> => {
   if (!isSuperAdmin(actorRole)) {
     throw new AppError(
       "Only a super admin can restore blocked or suspended users",
@@ -475,7 +490,7 @@ export const restoreUser = async (
       "Your account has been restored by the platform administrator. You may now use the platform.",
   });
 
-  return toUserDetail(target);
+  return await toUserDetail(target);
 };
 
 // ─── Super Admin: Override Compliance Case (B3) ──────────────────────────────

@@ -1,8 +1,10 @@
 import { StatusCodes } from "http-status-codes";
+import { FilterQuery } from "mongoose";
 import { SavedSearch, ISavedSearch } from "./savedSearch.model";
-import { IListing } from "../listings/listing.model";
+import { IListing, Listing } from "../listings/listing.model";
 import { AppError } from "../../core/utils/AppError";
 import * as notifications from "../notifications/notification.service";
+import { Notification } from "../notifications/notification.model";
 import type {
   CreateSavedSearchInput,
   UpdateSavedSearchInput,
@@ -99,15 +101,22 @@ const distanceMeters = (
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const inRadius = (listing: IListing, query: Record<string, unknown>): boolean => {
+const inRadius = (
+  listing: IListing,
+  query: Record<string, unknown>,
+): boolean => {
   const lng = numberQuery(query, "lng");
   const lat = numberQuery(query, "lat");
   const radius = numberQuery(query, "radius");
-  if (lng === undefined || lat === undefined || radius === undefined) return true;
+  if (lng === undefined || lat === undefined || radius === undefined)
+    return true;
   return distanceMeters(listing.location.coordinates, [lng, lat]) <= radius;
 };
 
-const inPolygon = (listing: IListing, query: Record<string, unknown>): boolean => {
+const inPolygon = (
+  listing: IListing,
+  query: Record<string, unknown>,
+): boolean => {
   const polygon = query.polygon;
   if (!Array.isArray(polygon)) return true;
   const [x, y] = listing.location.coordinates;
@@ -119,8 +128,7 @@ const inPolygon = (listing: IListing, query: Record<string, unknown>): boolean =
     const [xi, yi] = current as [number, number];
     const [xj, yj] = previous as [number, number];
     const intersects =
-      yi > y !== yj > y &&
-      x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
     if (intersects) inside = !inside;
   }
   return inside;
@@ -131,19 +139,42 @@ export const matchesListing = (
   listing: IListing,
 ): boolean => {
   const query = saved.query;
-  if (stringQuery(query, "listingType") && query.listingType !== listing.listingType) return false;
-  if (stringQuery(query, "category") && query.category !== listing.category) return false;
-  if (stringQuery(query, "propertyType") && query.propertyType !== listing.propertyType) return false;
-  if (numberQuery(query, "minBedrooms") !== undefined && (listing.bedrooms ?? 0) < numberQuery(query, "minBedrooms")!) return false;
-  if (numberQuery(query, "minBathrooms") !== undefined && (listing.bathrooms ?? 0) < numberQuery(query, "minBathrooms")!) return false;
+  if (
+    stringQuery(query, "listingType") &&
+    query.listingType !== listing.listingType
+  )
+    return false;
+  if (stringQuery(query, "category") && query.category !== listing.category)
+    return false;
+  if (
+    stringQuery(query, "propertyType") &&
+    query.propertyType !== listing.propertyType
+  )
+    return false;
+  if (
+    numberQuery(query, "minBedrooms") !== undefined &&
+    (listing.bedrooms ?? 0) < numberQuery(query, "minBedrooms")!
+  )
+    return false;
+  if (
+    numberQuery(query, "minBathrooms") !== undefined &&
+    (listing.bathrooms ?? 0) < numberQuery(query, "minBathrooms")!
+  )
+    return false;
 
   const price = listingPrice(listing);
   const minPrice = numberQuery(query, "minPrice");
   const maxPrice = numberQuery(query, "maxPrice");
-  if (minPrice !== undefined && (price === undefined || price < minPrice)) return false;
-  if (maxPrice !== undefined && (price === undefined || price > maxPrice)) return false;
+  if (minPrice !== undefined && (price === undefined || price < minPrice))
+    return false;
+  if (maxPrice !== undefined && (price === undefined || price > maxPrice))
+    return false;
 
-  return inBox(listing, query) && inRadius(listing, query) && inPolygon(listing, query);
+  return (
+    inBox(listing, query) &&
+    inRadius(listing, query) &&
+    inPolygon(listing, query)
+  );
 };
 
 export const notifyMatchingSavedSearches = async (
@@ -152,16 +183,58 @@ export const notifyMatchingSavedSearches = async (
   if (listing.status !== "published") return 0;
   const searches = await SavedSearch.find({ alertEnabled: true });
   const matches = searches.filter((saved) => matchesListing(saved, listing));
-  await Promise.all(
-    matches.map((saved) =>
-      notifications.notify({
+  const results = await Promise.all(
+    matches.map(async (saved) => {
+      const alreadySent = await Notification.exists({
+        recipient: saved.user,
+        type: "saved_search.match",
+        "metadata.listingId": listing.id,
+        "metadata.savedSearchId": saved.id,
+      });
+      if (alreadySent) return false;
+
+      await notifications.notify({
         recipient: saved.user.toString(),
         type: "saved_search.match",
         title: "New listing matched your search",
         message: `"${listing.title}" matches your saved search "${saved.name}".`,
         metadata: { listingId: listing.id, savedSearchId: saved.id },
-      }),
-    ),
+      });
+      return true;
+    }),
   );
-  return matches.length;
+  return results.filter(Boolean).length;
+};
+
+export interface SavedSearchAlertRunOptions {
+  since?: Date;
+  limit?: number;
+}
+
+export interface SavedSearchAlertRunSummary {
+  listingsChecked: number;
+  notificationsCreated: number;
+}
+
+export const runSavedSearchAlerts = async (
+  options: SavedSearchAlertRunOptions = {},
+): Promise<SavedSearchAlertRunSummary> => {
+  const filter: FilterQuery<IListing> = { status: "published" };
+  if (options.since) {
+    filter.updatedAt = { $gte: options.since };
+  }
+
+  const listings = await Listing.find(filter)
+    .sort({ updatedAt: -1 })
+    .limit(options.limit ?? 100);
+
+  let notificationsCreated = 0;
+  for (const listing of listings) {
+    notificationsCreated += await notifyMatchingSavedSearches(listing);
+  }
+
+  return {
+    listingsChecked: listings.length,
+    notificationsCreated,
+  };
 };

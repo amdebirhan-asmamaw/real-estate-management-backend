@@ -4,7 +4,6 @@ import helmet from "helmet";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
-import mongoose from "mongoose";
 import swaggerUi from "swagger-ui-express";
 
 import { env } from "./core/config/env";
@@ -12,7 +11,9 @@ import { openapiSpec } from "./core/docs/openapi";
 import { errorHandler } from "./core/middleware/error.middleware";
 import { notFoundHandler } from "./core/middleware/notFound.middleware";
 import { httpLogger } from "./core/middleware/httpLogger.middleware";
+import { requestId } from "./core/middleware/requestId.middleware";
 import { apiLimiter } from "./core/middleware/rateLimiter.middleware";
+import { getReadiness } from "./core/health/readiness";
 import apiRouter from "./index.routes";
 
 const app = express();
@@ -36,6 +37,7 @@ app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(requestId);
 
 // ─── Logging ────────────────────────────────────────────────────────────────────
 if (!env.isTest) {
@@ -51,13 +53,13 @@ app.get("/health", (_req, res) => {
 
 // Readiness: dependencies (DB) are reachable. Used by orchestrators to decide
 // whether to route traffic to this instance.
-app.get("/health/ready", (_req, res) => {
-  const dbReady = mongoose.connection.readyState === 1;
-  res.status(dbReady ? 200 : 503).json({
-    status: dbReady ? "ready" : "not ready",
-    services: { database: dbReady ? "up" : "down" },
-    timestamp: new Date().toISOString(),
-  });
+app.get("/health/ready", async (_req, res, next) => {
+  try {
+    const report = await getReadiness();
+    res.status(report.status === "ready" ? 200 : 503).json(report);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // ─── API Docs (Swagger UI) ──────────────────────────────────────────────────────

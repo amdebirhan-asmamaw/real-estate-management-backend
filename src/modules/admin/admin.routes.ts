@@ -1,7 +1,8 @@
 import { Router } from "express";
 import * as controller from "./admin.controller";
 import { validate } from "../../core/middleware/validate.middleware";
-import { authenticate, authorize } from "../../core/middleware/auth.middleware";
+import { authenticate, authorize, requirePermission } from "../../core/middleware/auth.middleware";
+import { PERMISSION_KEYS } from "../permissions/permission.constants";
 import {
   createAdminSchema,
   listAdminsSchema,
@@ -64,7 +65,8 @@ adminUserRouter.post(
 adminUserRouter.get(
   "/users",
   authenticate,
-  admins,
+  authorize("admin", "super_admin"),
+  requirePermission(PERMISSION_KEYS.USERS_LIST),
   validate(listUsersSchema, "query"),
   controller.listUsers,
 );
@@ -77,19 +79,22 @@ adminUserRouter.get(
 adminUserRouter.post(
   "/users/:id/suspend",
   authenticate,
-  admins,
+  authorize("admin", "super_admin"),
+  requirePermission(PERMISSION_KEYS.USERS_SUSPEND),
   controller.suspendUser,
 );
 adminUserRouter.post(
   "/users/:id/reactivate",
   authenticate,
-  admins,
+  authorize("admin", "super_admin"),
+  requirePermission(PERMISSION_KEYS.USERS_REACTIVATE),
   controller.reactivateUser,
 );
 adminUserRouter.post(
   "/users/:id/block",
   authenticate,
-  admins,
+  authorize("admin", "super_admin"),
+  requirePermission(PERMISSION_KEYS.USERS_BLOCK),
   controller.blockUser,
 );
 adminUserRouter.post(

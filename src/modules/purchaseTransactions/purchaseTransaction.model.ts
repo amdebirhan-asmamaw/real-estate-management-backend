@@ -42,6 +42,7 @@ export interface IPurchaseTransaction extends Document {
   depositAmount?: number;
   escrow: IPurchaseEscrow;
   termsHash?: string;
+  titleTransferTxHash?: string;
   closingChecklist: {
     purchaseAgreement: boolean;
     inspection: boolean;
@@ -148,6 +149,7 @@ const purchaseTransactionSchema = new Schema<IPurchaseTransaction>(
     depositAmount: { type: Number, min: 0 },
     escrow: { type: purchaseEscrowSchema, default: () => ({ state: "none" }) },
     termsHash: { type: String },
+    titleTransferTxHash: { type: String },
     dispute: {
       openedBy: { type: Schema.Types.ObjectId, ref: "User" },
       openedAt: { type: Date },

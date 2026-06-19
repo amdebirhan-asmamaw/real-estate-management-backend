@@ -72,4 +72,17 @@ const offerSchema = new Schema<IOffer>(
 
 offerSchema.index({ listing: 1, buyer: 1, status: 1 });
 
+// Prevent a buyer from having more than one active offer on the same listing.
+// "Active" means submitted or countered — accepted/rejected/cancelled offers
+// are terminal and do not participate in this constraint.
+// A sparse partial unique index is used so terminal-status offers are excluded.
+offerSchema.index(
+  { listing: 1, buyer: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ["submitted", "countered"] } },
+    name: "unique_active_offer_per_buyer_listing",
+  },
+);
+
 export const Offer = model<IOffer>("Offer", offerSchema);

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as controller from "./listing.controller";
+import * as rentalYieldController from "../rentalYield/rentalYield.controller";
 import { validate } from "../../core/middleware/validate.middleware";
 import {
   authenticate,
@@ -15,12 +16,19 @@ import {
   updateListingSchema,
   transitionSchema,
   discoverySchema,
+  clusterSchema,
   documentUploadSchema,
   documentReviewSchema,
   photoReorderSchema,
   setCoverSchema,
   titleActionSchema,
+  neighborhoodAnalyticsSchema,
+  bulkActionSchema,
 } from "./listing.validation";
+import {
+  maintenanceRecordQuerySchema,
+  maintenanceRecordSchema,
+} from "../rentalYield/rentalYield.validation";
 
 export const listingRouter = Router();
 
@@ -31,6 +39,17 @@ const admins = authorize("admin", "super_admin");
 
 // ─── Public discovery + read ────────────────────────────────────────────────────
 listingRouter.get("/", validate(discoverySchema, "query"), controller.discover);
+listingRouter.get(
+  "/clusters",
+  validate(clusterSchema, "query"),
+  controller.clusters,
+);
+listingRouter.get(
+  "/analytics/neighborhood",
+  optionalAuthenticate,
+  validate(neighborhoodAnalyticsSchema, "query"),
+  controller.neighborhoodAnalytics,
+);
 listingRouter.get("/mine", authenticate, managers, controller.mine);
 listingRouter.get(
   "/dashboard",
@@ -39,14 +58,47 @@ listingRouter.get(
   controller.ownerDashboard,
 );
 listingRouter.get(
+  "/dashboard/yield",
+  authenticate,
+  managers,
+  controller.yieldDashboard,
+);
+listingRouter.get(
   "/:id/analytics",
   authenticate,
   managers,
   controller.analytics,
 );
+listingRouter.get(
+  "/:id/yield",
+  authenticate,
+  managers,
+  rentalYieldController.yieldSummary,
+);
+listingRouter.get(
+  "/:id/maintenance-records",
+  authenticate,
+  managers,
+  validate(maintenanceRecordQuerySchema, "query"),
+  rentalYieldController.listMaintenanceRecords,
+);
+listingRouter.post(
+  "/:id/maintenance-records",
+  authenticate,
+  managers,
+  validate(maintenanceRecordSchema),
+  rentalYieldController.createMaintenanceRecord,
+);
 listingRouter.get("/:id", optionalAuthenticate, controller.getOne);
 
 // ─── Listing lifecycle ──────────────────────────────────────────────────────────
+listingRouter.post(
+  "/bulk-action",
+  authenticate,
+  managers,
+  validate(bulkActionSchema),
+  controller.bulkAction,
+);
 listingRouter.post(
   "/",
   authenticate,

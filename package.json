@@ -21,6 +21,8 @@
     "test:coverage": "jest --coverage --runInBand",
     "seed:users": "ts-node src/scripts/seed-users.ts",
     "seed:listings": "ts-node src/scripts/seed-listings.ts",
+    "reconcile:chain": "ts-node src/scripts/reconcile-chain.ts",
+    "alerts:saved-searches": "ts-node src/scripts/run-saved-search-alerts.ts",
     "prepare": "husky || true",
     "seed:super-admin": "ts-node scripts/seed-super-admin.ts"
   },

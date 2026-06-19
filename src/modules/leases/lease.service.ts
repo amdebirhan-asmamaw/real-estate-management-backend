@@ -139,6 +139,24 @@ export const createLease = async (
   const tenant = await User.findById(input.tenantId);
   if (!tenant) throw new AppError("Tenant not found", StatusCodes.NOT_FOUND);
 
+  // ── Overlap guard ────────────────────────────────────────────────────────
+  // Reject if there is already a non-terminal lease for this listing whose
+  // [startDate, endDate] interval overlaps the requested interval.
+  // Terminal statuses: "completed" | "terminated" | "cancelled".
+  const overlap = await Lease.findOne({
+    listing: listing.id,
+    status: { $in: ["draft", "proposed", "active", "disputed"] },
+    startDate: { $lt: new Date(input.endDate) },
+    endDate: { $gt: new Date(input.startDate) },
+  }).lean();
+
+  if (overlap) {
+    throw new AppError(
+      "A lease for this listing already covers part of the requested period",
+      StatusCodes.CONFLICT,
+    );
+  }
+
   // Early wallet warning: both parties need wallets before escrow can be funded.
   const landlord = await User.findById(listing.createdBy);
   if (!landlord?.walletAddress || !tenant.walletAddress) {
@@ -704,6 +722,75 @@ export const listMine = async (userId: string): Promise<ILease[]> =>
     createdAt: -1,
   });
 
+export interface TenantRosterEntry {
+  leaseId: string;
+  tenant: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  listing: {
+    id: string;
+    title: string;
+  };
+  startDate: Date;
+  endDate: Date;
+  status: LeaseStatus;
+  monthlyRent: number;
+}
+
+/**
+ * Returns active (or recent) leases scoped to the caller:
+ *   - property_owner: only their own leases
+ *   - admin/super_admin: all leases, or optionally filtered by ownerId query param
+ */
+export const tenantRoster = async (
+  userId: string,
+  role: string,
+  filterOwnerId?: string,
+): Promise<TenantRosterEntry[]> => {
+  const query: Record<string, unknown> = {};
+
+  if (isAdmin(role)) {
+    if (filterOwnerId) query.landlord = filterOwnerId;
+    // else return all
+  } else {
+    query.landlord = userId;
+  }
+
+  const leases = await Lease.find(query)
+    .populate<{
+      tenant: { _id: unknown; name: string; email: string };
+    }>("tenant", "name email")
+    .populate<{ listing: { _id: unknown; title: string } }>("listing", "title")
+    .sort({ createdAt: -1 });
+
+  return leases.map((lease) => {
+    const t = lease.tenant as unknown as {
+      _id: unknown;
+      name: string;
+      email: string;
+    };
+    const l = lease.listing as unknown as { _id: unknown; title: string };
+    return {
+      leaseId: lease.id,
+      tenant: {
+        id: String(t._id),
+        name: t.name,
+        email: t.email,
+      },
+      listing: {
+        id: String(l._id),
+        title: l.title,
+      },
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+      status: lease.status,
+      monthlyRent: lease.monthlyRent,
+    };
+  });
+};
+
 export const getLeaseById = async (
   id: string,
   userId: string | null,
@@ -729,4 +816,91 @@ export const getEscrowInfo = async (
     ? await escrow.getEscrow(lease.escrow.escrowId)
     : null;
   return { lease, onChain };
+};
+
+export const getTimeline = async (
+  id: string,
+  userId: string | null,
+  role: string | null,
+) => {
+  const lease = await getLeaseById(id, userId, role);
+  const activated =
+    lease.status === "active" ||
+    lease.status === "completed" ||
+    lease.status === "terminated";
+  const settled = ["completed", "terminated", "cancelled"].includes(
+    lease.status,
+  );
+
+  const events: Array<{
+    key: string;
+    label: string;
+    at?: Date;
+    status: string;
+    metadata?: Record<string, unknown>;
+  }> = [
+    {
+      key: "created",
+      label: "Lease created",
+      at: lease.createdAt,
+      status: "completed",
+    },
+    {
+      key: "proposed",
+      label: "Lease proposed",
+      at: lease.termsHash ? lease.updatedAt : undefined,
+      status: lease.termsHash ? "completed" : "pending",
+      metadata: { termsHash: lease.termsHash },
+    },
+    {
+      key: "signed",
+      label: "Tenant signed",
+      at: lease.signedByTenantAt,
+      status: lease.signedByTenantAt ? "completed" : "pending",
+    },
+    {
+      key: "escrow_funded",
+      label: "Escrow funded",
+      at: lease.escrow.fundTxHash ? lease.updatedAt : undefined,
+      status: lease.escrow.fundTxHash ? "completed" : "pending",
+      metadata: {
+        txHash: lease.escrow.fundTxHash,
+        escrowId: lease.escrow.escrowId,
+      },
+    },
+    {
+      key: "active",
+      label: "Lease activated",
+      at: lease.escrow.activateTxHash ? lease.updatedAt : undefined,
+      status: activated ? "completed" : "pending",
+      metadata: { txHash: lease.escrow.activateTxHash },
+    },
+    {
+      key: "settled",
+      label: "Lease settled",
+      at: lease.escrow.settleTxHash ? lease.updatedAt : undefined,
+      status: settled ? "completed" : "pending",
+      metadata: {
+        txHash: lease.escrow.settleTxHash,
+        finalStatus: lease.status,
+      },
+    },
+  ];
+
+  if (lease.dispute?.openedAt) {
+    events.push({
+      key: "disputed",
+      label: "Dispute opened",
+      at: lease.dispute.openedAt,
+      status: lease.status === "disputed" ? "active" : "completed",
+      metadata: { reason: lease.dispute.reason },
+    });
+  }
+
+  return {
+    leaseId: lease.id,
+    currentStatus: lease.status,
+    escrowState: lease.escrow.state,
+    events,
+  };
 };

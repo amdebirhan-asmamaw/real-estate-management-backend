@@ -3,6 +3,7 @@ import { FilterQuery, Types } from "mongoose";
 import {
   IPurchaseTransaction,
   PurchaseTransaction,
+  PurchaseTransactionStatus,
 } from "./purchaseTransaction.model";
 import { Offer, IOffer } from "../offers/offer.model";
 import { Listing } from "../listings/listing.model";
@@ -13,6 +14,7 @@ import { sha256 } from "../../core/utils/hash";
 import * as audit from "../audit/audit.service";
 import * as notifications from "../notifications/notification.service";
 import * as saleEscrow from "../../core/blockchain/saleEscrow.service";
+import * as propertyTitle from "../../core/blockchain/propertyTitle.service";
 import * as chainTransactions from "../chainTransactions/chainTransaction.service";
 import type { ChainTransactionOperation } from "../chainTransactions/chainTransaction.model";
 import type {
@@ -199,6 +201,16 @@ export const getById = async (
   return item;
 };
 
+// Statuses that must only be reached through fund/release/refund — manual
+// updateStatus calls into these states are rejected to keep the audit trail
+// and on-chain escrow records coherent.
+const ESCROW_GATED_STATUSES: PurchaseTransactionStatus[] = [
+  "deposit_received",
+  "closing_review",
+  "title_transfer_pending",
+  "completed",
+];
+
 export const updateStatus = async (
   id: string,
   input: UpdatePurchaseTransactionInput,
@@ -212,6 +224,31 @@ export const updateStatus = async (
     );
   }
   const item = await getById(id, actorId, actorRole);
+
+  // Guard: "completed" may only be set once the on-chain escrow has been
+  // released.  Manually skipping to completed without a released escrow would
+  // mark the listing as sold without any settlement on-chain.
+  if (input.status === "completed" && item.escrow.state !== "released") {
+    throw new AppError(
+      `Cannot manually set status to "completed" — the escrow state is "${item.escrow.state}" (must be "released"). ` +
+        "Use the release endpoint to settle the escrow and complete the transaction.",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  // Guard: financial/escrow-gated states must be reached through the dedicated
+  // escrow lifecycle endpoints (fund, release, refund) so the chain transaction
+  // log and audit trail remain coherent.
+  if (
+    input.status !== "completed" && // already handled above
+    ESCROW_GATED_STATUSES.includes(input.status)
+  ) {
+    throw new AppError(
+      `Cannot manually set status to "${input.status}". ` +
+        'Use the escrow lifecycle endpoints: fund (→ "deposit_received"), release (→ "completed"), or refund (→ "cancelled").',
+      StatusCodes.CONFLICT,
+    );
+  }
 
   item.status = input.status;
   if (input.depositAmount !== undefined)
@@ -409,6 +446,28 @@ export const release = async (
   const pt = await getById(id, userId, role);
   const escrowId = requireFundedEscrow(pt);
 
+  // ── Pre-flight: verify the title can be transferred BEFORE moving funds ──
+  // A sale must not complete if the listing has no minted title or the buyer
+  // has no wallet — those are the two hard requirements for on-chain transfer.
+  const [listing, buyer] = await Promise.all([
+    Listing.findById(pt.listing),
+    User.findById(pt.buyer),
+  ]);
+
+  if (!listing?.tokenId) {
+    throw new AppError(
+      "The listing does not have a minted title token. Mint the title before releasing escrow.",
+      StatusCodes.CONFLICT,
+    );
+  }
+  if (!buyer?.walletAddress) {
+    throw new AppError(
+      "The buyer does not have a linked wallet address. The title cannot be transferred.",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  // ── Step 1: Release escrow funds to the seller ───────────────────────────
   const tx = await trackEscrowTx(
     {
       operation: "sale_escrow.release",
@@ -421,10 +480,44 @@ export const release = async (
 
   pt.escrow.state = "released";
   pt.escrow.settleTxHash = tx.txHash;
+
+  // ── Step 2: Transfer the title NFT to the buyer ──────────────────────────
+  // EDGE CASE: If the escrow release above succeeded but the title transfer
+  // fails, funds have already moved to the seller.  We mark the title.transfer
+  // chainTransaction as failed and surface the error so an operator can retry
+  // the transfer manually (e.g. via a dedicated admin endpoint). The purchase
+  // transaction is NOT marked completed until transfer succeeds.
+  const titleChainTx = await chainTransactions.begin({
+    operation: "title.transfer",
+    targetType: "purchase_transaction",
+    targetId: pt.id,
+    createdBy: userId,
+    contractAddress: listing.contractAddress || undefined,
+    metadata: { tokenId: listing.tokenId, toWallet: buyer.walletAddress },
+  });
+
+  let titleTxHash: string;
+  try {
+    const titleResult = await propertyTitle.transferTitle(
+      listing.tokenId,
+      buyer.walletAddress,
+    );
+    titleTxHash = titleResult.txHash;
+    await chainTransactions.markMined(titleChainTx.id, {
+      txHash: titleTxHash,
+      contractAddress: listing.contractAddress || undefined,
+      metadata: { tokenId: listing.tokenId, toWallet: buyer.walletAddress },
+    });
+  } catch (error) {
+    await chainTransactions.markFailed(titleChainTx.id, error);
+    throw error;
+  }
+
+  pt.titleTransferTxHash = titleTxHash;
   pt.status = "completed";
   pt.timeline.push({
     status: "completed",
-    note: "Escrow released to seller.",
+    note: "Escrow released to seller and title transferred to buyer.",
     actor: userId as unknown as Types.ObjectId,
     createdAt: new Date(),
   });
@@ -436,6 +529,7 @@ export const release = async (
   });
 
   await pt.save();
+
   await audit.record({
     actor: userId,
     actorRole: role,
@@ -444,11 +538,24 @@ export const release = async (
     targetId: pt.id,
     metadata: { txHash: tx.txHash },
   });
+  await audit.record({
+    actor: userId,
+    actorRole: role,
+    action: "purchase.title_transferred",
+    targetType: "purchase_transaction",
+    targetId: pt.id,
+    metadata: {
+      tokenId: listing.tokenId,
+      toWallet: buyer.walletAddress,
+      txHash: titleTxHash,
+    },
+  });
+
   await notifyPurchaseParties(
     pt,
     "Purchase completed",
-    "The purchase escrow has been released to the seller.",
-    { txHash: tx.txHash },
+    "The purchase escrow has been released to the seller and the title has been transferred to the buyer.",
+    { txHash: tx.txHash, titleTxHash },
   );
   return pt;
 };

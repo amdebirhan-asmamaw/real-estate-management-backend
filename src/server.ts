@@ -3,8 +3,12 @@ import app from "./app";
 import { env } from "./core/config/env";
 import { connectDatabase, disconnectDatabase } from "./core/config/database";
 import { logger } from "./core/utils/logger";
+import { reconcilePending } from "./modules/chainTransactions/reconcile.job";
 
 let server: Server;
+// Handle returned by setInterval for the reconciliation job. Kept module-level
+// so shutdown() can clearInterval on it.
+let reconcileHandle: ReturnType<typeof setInterval> | undefined;
 
 /**
  * Emit a visible warning when the server starts in production with a raw
@@ -40,6 +44,25 @@ const start = async (): Promise<void> => {
       `🚀 Server running in ${env.NODE_ENV} mode on port ${env.PORT}`,
     );
   });
+
+  // ── Reconciliation job ───────────────────────────────────────────────────
+  // Only start if RECONCILE_INTERVAL_MS > 0 AND the chain is configured.
+  // Default is 0 (disabled) so tests and staging environments are unaffected.
+  // Alternative: use a dedicated cron entrypoint instead of this in-process
+  // scheduler — see the example in reconcile.job.ts header comments.
+  if (env.RECONCILE_INTERVAL_MS > 0 && env.BLOCKCHAIN_RPC_URL) {
+    logger.info(
+      `Chain reconciliation job scheduled every ${env.RECONCILE_INTERVAL_MS} ms`,
+    );
+    reconcileHandle = setInterval(() => {
+      reconcilePending().catch((err: unknown) => {
+        logger.error("reconcile.job: unexpected error in scheduled run", err);
+      });
+    }, env.RECONCILE_INTERVAL_MS);
+    // Unref so the interval doesn't prevent graceful shutdown from completing
+    // if the process would otherwise exit cleanly.
+    reconcileHandle.unref();
+  }
 };
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
@@ -49,6 +72,13 @@ const shutdown = async (signal: string): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info(`${signal} received. Shutting down gracefully...`);
+
+  // Stop the reconciliation interval before closing the server so no new
+  // reconcile runs are triggered after we start draining.
+  if (reconcileHandle !== undefined) {
+    clearInterval(reconcileHandle);
+    reconcileHandle = undefined;
+  }
 
   // Stop accepting new connections, then drain dependencies.
   const closeServer = new Promise<void>((resolve) => {

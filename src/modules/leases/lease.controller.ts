@@ -199,3 +199,30 @@ export const escrowInfo: Handler = async (req, res, next) => {
     next(e);
   }
 };
+
+export const timeline: Handler = async (req, res, next) => {
+  try {
+    const result = await service.getTimeline(
+      req.params.id,
+      req.user?.userId ?? null,
+      req.user?.role ?? null,
+    );
+    sendSuccess(res, result, "Lease timeline");
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const tenantRoster: Handler = async (req, res, next) => {
+  try {
+    const filterOwnerId = (req.query as Record<string, string>).ownerId;
+    const roster = await service.tenantRoster(
+      req.user!.userId,
+      req.user!.role,
+      filterOwnerId,
+    );
+    sendSuccess(res, roster, "Tenant roster");
+  } catch (e) {
+    next(e);
+  }
+};

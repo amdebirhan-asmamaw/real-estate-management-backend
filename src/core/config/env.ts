@@ -72,6 +72,29 @@ const envSchema = Joi.object({
   // Defaults to false — mainnet is blocked unless explicitly opted in to prevent
   // accidental real-money transactions in staging or misconfigured environments.
   ALLOW_MAINNET_ESCROW: Joi.boolean().default(false),
+  // Free geocoding adapter. `mock` is deterministic and test-safe; `nominatim`
+  // uses an OpenStreetMap/Nominatim-compatible HTTP endpoint.
+  GEOCODER_PROVIDER: Joi.string().valid("mock", "nominatim").default("mock"),
+  NOMINATIM_BASE_URL: Joi.string()
+    .uri()
+    .default("https://nominatim.openstreetmap.org"),
+  NOMINATIM_USER_AGENT: Joi.string().default("real-estate-marketplace/1.0"),
+  GEOCODER_CACHE_TTL_HOURS: Joi.number()
+    .integer()
+    .min(1)
+    .default(24 * 30),
+  // Account lockout: after MAX_LOGIN_ATTEMPTS consecutive bad passwords the
+  // account is locked for LOGIN_LOCK_MINUTES. Set to 0 to disable locking.
+  MAX_LOGIN_ATTEMPTS: Joi.number().integer().min(0).default(5),
+  LOGIN_LOCK_MINUTES: Joi.number().integer().min(1).default(15),
+  // Signed-URL lifetime in seconds for private (authenticated) Cloudinary assets.
+  // Default 300 s (5 min). Must be > 0.
+  SIGNED_URL_TTL_SECONDS: Joi.number().integer().min(1).default(300),
+  // Reconciliation job polling interval in milliseconds.
+  // 0 = disabled (default). Set to e.g. 60000 (1 min) in production.
+  // Alternative: use a cron entrypoint (see scripts/reconcile.cron.ts example
+  // in reconcile.job.ts) instead of this in-process scheduler.
+  RECONCILE_INTERVAL_MS: Joi.number().integer().min(0).default(0),
 })
   .unknown(true) // allow other process.env variables
   .required();
@@ -120,6 +143,14 @@ interface Env {
   ESCROW_TOKEN_ADDRESS: string;
   SALE_ESCROW_CONTRACT_ADDRESS: string;
   ALLOW_MAINNET_ESCROW: boolean;
+  GEOCODER_PROVIDER: "mock" | "nominatim";
+  NOMINATIM_BASE_URL: string;
+  NOMINATIM_USER_AGENT: string;
+  GEOCODER_CACHE_TTL_HOURS: number;
+  MAX_LOGIN_ATTEMPTS: number;
+  LOGIN_LOCK_MINUTES: number;
+  SIGNED_URL_TTL_SECONDS: number;
+  RECONCILE_INTERVAL_MS: number;
 }
 
 const validated = value as Env;

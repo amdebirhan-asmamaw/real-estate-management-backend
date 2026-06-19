@@ -1,8 +1,16 @@
 import Joi from "joi";
 
 const PROPERTY_TYPES = [
-  "apartment", "house", "villa", "condominium", "land",
-  "commercial_space", "office", "warehouse", "shop", "mixed_use",
+  "apartment",
+  "house",
+  "villa",
+  "condominium",
+  "land",
+  "commercial_space",
+  "office",
+  "warehouse",
+  "shop",
+  "mixed_use",
 ] as const;
 
 const REJECTION_CODES = [
@@ -74,21 +82,19 @@ export const createListingSchema = Joi.object({
   description: Joi.string().max(5000).allow(""),
   listingType: Joi.string().valid("sale", "rent").required(),
   category: Joi.string().valid("residential", "commercial").required(),
-  propertyType: Joi.string().valid(...PROPERTY_TYPES).required(),
-  price: Joi.number()
-    .min(0)
-    .when("listingType", {
-      is: "sale",
-      then: Joi.required(),
-      otherwise: Joi.forbidden(),
-    }),
-  monthlyRent: Joi.number()
-    .min(0)
-    .when("listingType", {
-      is: "rent",
-      then: Joi.required(),
-      otherwise: Joi.forbidden(),
-    }),
+  propertyType: Joi.string()
+    .valid(...PROPERTY_TYPES)
+    .required(),
+  price: Joi.number().min(0).when("listingType", {
+    is: "sale",
+    then: Joi.required(),
+    otherwise: Joi.forbidden(),
+  }),
+  monthlyRent: Joi.number().min(0).when("listingType", {
+    is: "rent",
+    then: Joi.required(),
+    otherwise: Joi.forbidden(),
+  }),
   currency: Joi.string().length(3).uppercase().default("USD"),
   bedrooms: Joi.number().min(0),
   bathrooms: Joi.number().min(0),
@@ -104,7 +110,11 @@ export const createListingSchema = Joi.object({
   serviceCharge: Joi.number().min(0),
   utilityDetails: Joi.string().max(2000).allow(""),
   neighborhoodInfo: Joi.string().max(2000).allow(""),
-  furnishingStatus: Joi.string().valid("furnished", "semi_furnished", "unfurnished"),
+  furnishingStatus: Joi.string().valid(
+    "furnished",
+    "semi_furnished",
+    "unfurnished",
+  ),
   nearbyLandmarks: Joi.array().items(Joi.string().max(200)),
   rentalTerms: Joi.string().max(5000).allow(""),
   saleTerms: Joi.string().max(5000).allow(""),
@@ -122,7 +132,9 @@ export const createListingSchema = Joi.object({
 
 // PATCH: all fields optional; type-specific and location rules still apply if present.
 export const updateListingSchema = createListingSchema
-  .fork(["title", "listingType", "category", "propertyType", "location"], (s) => s.optional())
+  .fork(["title", "listingType", "category", "propertyType", "location"], (s) =>
+    s.optional(),
+  )
   .min(1);
 
 export const transitionSchema = Joi.object({
@@ -199,7 +211,12 @@ export const discoverySchema = Joi.object({
   minArea: Joi.number().min(0),
   maxArea: Joi.number().min(0),
   verifiedOnly: Joi.boolean(),
-  availabilityStatus: Joi.string().valid("available", "under_offer", "rented", "sold"),
+  availabilityStatus: Joi.string().valid(
+    "available",
+    "under_offer",
+    "rented",
+    "sold",
+  ),
   amenities: Joi.alternatives().try(
     Joi.array().items(Joi.string()),
     Joi.string(), // single value from query string
@@ -213,6 +230,55 @@ export const discoverySchema = Joi.object({
   .and("swLng", "swLat", "neLng", "neLat")
   .and("lng", "lat", "radius")
   .oxor("swLng", "lng", "polygon"); // cannot use multiple spatial modes
+
+export const clusterSchema = Joi.object({
+  swLng: Joi.number().min(-180).max(180).required(),
+  swLat: Joi.number().min(-90).max(90).required(),
+  neLng: Joi.number().min(-180).max(180).required(),
+  neLat: Joi.number().min(-90).max(90).required(),
+  zoom: Joi.number().integer().min(1).max(22).default(12),
+  listingType: Joi.string().valid("sale", "rent"),
+  category: Joi.string().valid("residential", "commercial"),
+  propertyType: Joi.string().valid(...PROPERTY_TYPES),
+  minPrice: Joi.number().min(0),
+  maxPrice: Joi.number().min(0),
+  verifiedOnly: Joi.boolean(),
+  availabilityStatus: Joi.string().valid(
+    "available",
+    "under_offer",
+    "rented",
+    "sold",
+  ),
+});
+
+export const neighborhoodAnalyticsSchema = Joi.object({
+  region: Joi.string().max(200).allow(""),
+});
+
+export const bulkActionSchema = Joi.object({
+  actions: Joi.array()
+    .items(
+      Joi.object({
+        id: Joi.string().required(),
+        action: Joi.string()
+          .valid(...TRANSITION_ACTIONS)
+          .required(),
+        reason: Joi.string().valid(
+          "missing_document",
+          "invalid_ownership_proof",
+          "wrong_location",
+          "poor_quality",
+          "suspicious",
+          "duplicate",
+          "other",
+        ),
+        note: Joi.string().max(2000),
+      }),
+    )
+    .min(1)
+    .max(50)
+    .required(),
+});
 
 export const adminListSchema = Joi.object({
   status: Joi.string().valid(
@@ -228,7 +294,12 @@ export const adminListSchema = Joi.object({
     "archived",
   ),
   verificationStatus: Joi.string().valid(
-    "unverified", "pending", "requires_more_info", "verified", "rejected", "suspended",
+    "unverified",
+    "pending",
+    "requires_more_info",
+    "verified",
+    "rejected",
+    "suspended",
   ),
   propertyType: Joi.string().valid(...PROPERTY_TYPES),
   page: Joi.number().integer().min(1).default(1),
@@ -306,10 +377,44 @@ export type DiscoveryQuery = {
   limit: number;
 };
 
+export type ClusterQuery = Pick<
+  DiscoveryQuery,
+  | "swLng"
+  | "swLat"
+  | "neLng"
+  | "neLat"
+  | "listingType"
+  | "category"
+  | "propertyType"
+  | "minPrice"
+  | "maxPrice"
+  | "verifiedOnly"
+  | "availabilityStatus"
+> & {
+  swLng: number;
+  swLat: number;
+  neLng: number;
+  neLat: number;
+  zoom: number;
+};
+
 export type AdminListQuery = {
   status?: string;
   verificationStatus?: string;
   propertyType?: string;
   page: number;
   limit: number;
+};
+
+export type NeighborhoodAnalyticsQuery = {
+  region?: string;
+};
+
+export type BulkActionInput = {
+  actions: Array<{
+    id: string;
+    action: TransitionAction;
+    reason?: RejectionCode;
+    note?: string;
+  }>;
 };

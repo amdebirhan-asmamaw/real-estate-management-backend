@@ -9,6 +9,11 @@ jest.mock("../src/core/blockchain/saleEscrow.service", () => ({
   toBaseUnits: jest.fn(async (amount: number) => BigInt(amount) * BigInt(10 ** 18)),
 }));
 
+jest.mock("../src/core/blockchain/propertyTitle.service", () => ({
+  transferTitle: jest.fn(async () => ({ txHash: "0xtitletransfer" })),
+  isConfigured: () => true,
+}));
+
 import mongoose from "mongoose";
 import { User } from "../src/modules/auth/auth.model";
 import { Listing } from "../src/modules/listings/listing.model";
@@ -36,6 +41,7 @@ const makeUser = async (opts: {
 const makeListing = async (
   createdBy: string,
   verificationStatus = "verified",
+  tokenId?: string,
 ) =>
   Listing.create({
     title: "Test Sale Listing",
@@ -48,6 +54,7 @@ const makeListing = async (
     verificationStatus,
     location: { type: "Point", coordinates: [38.7, 9.0] },
     createdBy,
+    ...(tokenId ? { tokenId } : {}),
   });
 
 const makePurchaseTransaction = async (
@@ -85,7 +92,8 @@ describe("purchaseTransaction.service escrow state machine", () => {
       kycStatus: "verified",
     });
     admin = await makeUser({ role: "admin" });
-    listing = await makeListing(seller.id, "verified");
+    // Listing has a tokenId so that release() can transfer the title on-chain.
+    listing = await makeListing(seller.id, "verified", "42");
   });
 
   // ── fund ─────────────────────────────────────────────────────────────────────
@@ -165,8 +173,9 @@ describe("purchaseTransaction.service escrow state machine", () => {
   // ── release ───────────────────────────────────────────────────────────────────
 
   describe("release", () => {
-    it("releases funded escrow → status=completed, escrow.state=released", async () => {
+    it("releases funded escrow → status=completed, escrow.state=released, transfers title to buyer", async () => {
       const chain = require("../src/core/blockchain/saleEscrow.service");
+      const titleSvc = require("../src/core/blockchain/propertyTitle.service");
       const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
       await service.fund(pt.id, admin.id, "admin");
       const released = await service.release(pt.id, admin.id, "admin");
@@ -176,12 +185,24 @@ describe("purchaseTransaction.service escrow state machine", () => {
       expect(released.escrow.state).toBe("released");
       expect(released.escrow.settleTxHash).toBe("0xrelease");
 
-      const tx = await ChainTransaction.findOne({
+      // Title transfer assertions.
+      expect(titleSvc.transferTitle).toHaveBeenCalledWith("42", buyer.walletAddress);
+      expect(released.titleTransferTxHash).toBe("0xtitletransfer");
+
+      const escrowTx = await ChainTransaction.findOne({
         targetType: "purchase_transaction",
         targetId: pt.id,
         operation: "sale_escrow.release",
       });
-      expect(tx?.status).toBe("mined");
+      expect(escrowTx?.status).toBe("mined");
+
+      const titleTx = await ChainTransaction.findOne({
+        targetType: "purchase_transaction",
+        targetId: pt.id,
+        operation: "title.transfer",
+      });
+      expect(titleTx?.status).toBe("mined");
+      expect(titleTx?.txHash).toBe("0xtitletransfer");
     });
 
     it("throws FORBIDDEN when non-admin calls release", async () => {
@@ -193,6 +214,56 @@ describe("purchaseTransaction.service escrow state machine", () => {
     it("throws CONFLICT when escrow is not funded", async () => {
       const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
       await expect(service.release(pt.id, admin.id, "admin")).rejects.toBeInstanceOf(AppError);
+    });
+
+    it("blocks release (throws CONFLICT, does NOT call releaseEscrow) when listing has no tokenId", async () => {
+      const chain = require("../src/core/blockchain/saleEscrow.service");
+      chain.releaseEscrow.mockClear();
+
+      // Listing without a tokenId.
+      const noTokenListing = await makeListing(seller.id, "verified");
+      const pt = await makePurchaseTransaction(noTokenListing.id, buyer.id, seller.id);
+      await service.fund(pt.id, admin.id, "admin");
+
+      await expect(service.release(pt.id, admin.id, "admin")).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(chain.releaseEscrow).not.toHaveBeenCalled();
+    });
+
+    it("blocks release (throws CONFLICT, does NOT call releaseEscrow) when buyer has no wallet", async () => {
+      const chain = require("../src/core/blockchain/saleEscrow.service");
+      chain.releaseEscrow.mockClear();
+
+      const noWalletBuyer = await makeUser({ role: "tenant", kycStatus: "verified" });
+      const pt = await makePurchaseTransaction(listing.id, noWalletBuyer.id, seller.id);
+
+      // Manually force escrow into funded state so requireFundedEscrow passes,
+      // but the pre-flight wallet check fires before releaseEscrow is called.
+      await pt.updateOne({
+        "escrow.state": "funded",
+        "escrow.escrowId": "99",
+        status: "deposit_received",
+      });
+
+      await expect(service.release(pt.id, admin.id, "admin")).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(chain.releaseEscrow).not.toHaveBeenCalled();
+    });
+
+    it("writes a purchase.title_transferred audit record on successful release", async () => {
+      const { AuditLog } = require("../src/modules/audit/audit.model");
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      await service.fund(pt.id, admin.id, "admin");
+      await service.release(pt.id, admin.id, "admin");
+
+      const auditEntry = await AuditLog.findOne({
+        action: "purchase.title_transferred",
+        targetId: pt.id,
+      });
+      expect(auditEntry).not.toBeNull();
+      expect(auditEntry?.metadata?.toWallet).toBe(buyer.walletAddress);
     });
   });
 
@@ -366,6 +437,80 @@ describe("purchaseTransaction.service escrow state machine", () => {
       expect(resolved.escrow.state).toBe("none");
       expect(chain.releaseEscrow).not.toHaveBeenCalled();
       expect(chain.refundEscrow).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── updateStatus guards (Task 2) ──────────────────────────────────────────
+
+  describe("updateStatus transparency guards", () => {
+    it("throws CONFLICT when setting status=completed without a released escrow", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      // Fund escrow so escrow.state becomes "funded", not "released".
+      await service.fund(pt.id, admin.id, "admin");
+
+      await expect(
+        service.updateStatus(pt.id, { status: "completed" }, admin.id, "admin"),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("throws CONFLICT when manually setting status=deposit_received (escrow-gated)", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+
+      await expect(
+        service.updateStatus(pt.id, { status: "deposit_received" }, admin.id, "admin"),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("throws CONFLICT when manually setting status=closing_review (escrow-gated)", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+
+      await expect(
+        service.updateStatus(pt.id, { status: "closing_review" }, admin.id, "admin"),
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it("allows benign non-financial status transitions (e.g. offer_accepted → disputed)", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      // "disputed" is not in the escrow-gated list, so updateStatus should allow it.
+      const updated = await service.updateStatus(
+        pt.id,
+        { status: "disputed", note: "Admin override" },
+        admin.id,
+        "admin",
+      );
+      expect(updated.status).toBe("disputed");
+    });
+
+    it("throws FORBIDDEN when non-admin calls updateStatus", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+      await expect(
+        service.updateStatus(pt.id, { status: "cancelled" }, buyer.id, "tenant"),
+      ).rejects.toBeInstanceOf(AppError);
+    });
+  });
+
+  // ── funding idempotency via chainTransaction guard (Task 3) ───────────────
+
+  describe("fund idempotency — chainTransaction-level guard", () => {
+    it("rejects a second fund when chainTransaction record already exists for sale_escrow.open_and_fund", async () => {
+      const pt = await makePurchaseTransaction(listing.id, buyer.id, seller.id);
+
+      // First fund succeeds and writes a chainTransaction with status=mined.
+      await service.fund(pt.id, admin.id, "admin");
+
+      // Reset the DB escrow.state back to "none" to bypass the service-level
+      // escrow.state gate — this isolates the chainTransaction-level guard.
+      await PurchaseTransaction.findByIdAndUpdate(pt.id, {
+        "escrow.state": "none",
+        "escrow.escrowId": undefined,
+        status: "deposit_pending",
+      });
+
+      // The chainTransaction record (status=mined) is still in DB.
+      // assertNoActiveFund in chainTransaction.service.begin() should reject.
+      await expect(service.fund(pt.id, admin.id, "admin")).rejects.toMatchObject({
+        statusCode: 409,
+      });
     });
   });
 });

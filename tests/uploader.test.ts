@@ -3,15 +3,19 @@ jest.mock("../src/core/config/env", () => ({
     CLOUDINARY_CLOUD_NAME: "test-cloud",
     CLOUDINARY_API_KEY: "test-key",
     CLOUDINARY_API_SECRET: "test-secret",
+    SIGNED_URL_TTL_SECONDS: 300,
   },
 }));
+
+const mockCloudinaryUrl = jest.fn(
+  (publicId: string, opts: Record<string, unknown>) =>
+    `https://cdn/signed/${publicId}?__sig=abc&expires_at=${opts.expires_at ?? ""}`,
+);
 
 jest.mock("cloudinary", () => ({
   v2: {
     config: jest.fn(),
-    url: jest.fn(
-      (publicId: string) => `https://cdn/signed/${publicId}?__sig=abc`,
-    ),
+    url: mockCloudinaryUrl,
     uploader: {
       upload_stream: (
         _opts: unknown,
@@ -58,6 +62,23 @@ describe("uploader", () => {
 
   it("mints a signed URL for a private asset", () => {
     expect(signedUrl("folder/x")).toContain("__sig=");
+  });
+
+  it("passes expires_at to cloudinary.url so the signed URL has an explicit expiry", () => {
+    const before = Math.floor(Date.now() / 1000);
+    signedUrl("folder/x");
+    const after = Math.floor(Date.now() / 1000);
+
+    // The last call to cloudinary.url must have received expires_at.
+    const lastCall = mockCloudinaryUrl.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    const opts = lastCall![1] as Record<string, unknown>;
+    expect(typeof opts.expires_at).toBe("number");
+
+    // expires_at should be roughly now + 300 s (SIGNED_URL_TTL_SECONDS).
+    const expiresAt = opts.expires_at as number;
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 300);
+    expect(expiresAt).toBeLessThanOrEqual(after + 300);
   });
 
   it("destroys by publicId", async () => {

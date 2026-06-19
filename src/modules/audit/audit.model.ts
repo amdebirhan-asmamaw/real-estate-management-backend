@@ -22,6 +22,11 @@ export const AUDIT_ACTIONS = [
   "admin.reactivated_admin",
   "admin.restored_user",
   "admin.override_decision",
+  "admin.permission_created",
+  "admin.permission_updated",
+  "admin.permission_deleted",
+  "admin.permission_assigned",
+  "admin.permission_revoked",
   // KYC
   "user.kyc_submitted",
   "user.kyc_resubmitted",
@@ -74,6 +79,7 @@ export const AUDIT_ACTIONS = [
   "purchase.escrow_funded",
   "purchase.escrow_released",
   "purchase.escrow_refunded",
+  "purchase.title_transferred",
   "purchase.disputed",
   "purchase.dispute_resolved",
   // Rental applications
@@ -83,6 +89,8 @@ export const AUDIT_ACTIONS = [
   "rental_application.appointment_updated",
   "rental_application.withdrawn",
   "rental_application.lease_created",
+  // Rental yield
+  "maintenance_record.created",
 ] as const;
 
 export type AuditTargetType =

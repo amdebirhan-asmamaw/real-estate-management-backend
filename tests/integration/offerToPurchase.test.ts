@@ -8,11 +8,18 @@ jest.mock("../../src/core/blockchain/saleEscrow.service", () => ({
   toBaseUnits: jest.fn(async (amount: number) => BigInt(amount) * BigInt(10 ** 18)),
 }));
 
+// Title transfer on sale completion is orchestrated by the backend on release.
+jest.mock("../../src/core/blockchain/propertyTitle.service", () => ({
+  transferTitle: jest.fn(async () => ({ txHash: "0xtitle" })),
+  isConfigured: () => true,
+}));
+
 import {
   seedVerifiedUserWithWallet,
   seedUser,
   seedPublishedSaleListing,
 } from "./_helpers";
+import { Listing } from "../../src/modules/listings/listing.model";
 import { PurchaseTransaction } from "../../src/modules/purchaseTransactions/purchaseTransaction.model";
 import { AppError } from "../../src/core/utils/AppError";
 import * as offerService from "../../src/modules/offers/offer.service";
@@ -60,12 +67,22 @@ describe("integration: offer → purchase transaction lifecycle", () => {
     expect(funded.status).toBe("deposit_received");
     expect(chain.openAndFundEscrow).toHaveBeenCalled();
 
-    // ── admin releases escrow → completed ─────────────────────────────────────
+    // ── a minted title must exist before a sale can complete + transfer ───────
+    await Listing.findByIdAndUpdate(listing.id, {
+      tokenId: "1",
+      contractAddress: "0xtitlecontract",
+    });
+
+    // ── admin releases escrow → completed (funds to seller + title to buyer) ───
+    const titleChain = require("../../src/core/blockchain/propertyTitle.service");
     const released = await purchaseService.release(pt!.id, admin.id, "admin");
     expect(released.status).toBe("completed");
     expect(released.escrow.state).toBe("released");
     expect(released.escrow.settleTxHash).toBe("0xrelease");
     expect(chain.releaseEscrow).toHaveBeenCalledWith("1");
+    // title transferred to the buyer's wallet on completion
+    expect(titleChain.transferTitle).toHaveBeenCalledWith("1", buyer.walletAddress);
+    expect(released.titleTransferTxHash).toBe("0xtitle");
   });
 
   it("negative: fund fails when buyer has no wallet address", async () => {

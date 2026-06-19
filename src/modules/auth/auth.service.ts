@@ -180,7 +180,9 @@ export const login = async (
   input: LoginInput,
   ctx?: AuthContext,
 ): Promise<AuthResult> => {
-  const user = await User.findOne({ email: input.email }).select("+password");
+  const user = await User.findOne({ email: input.email }).select(
+    "+password +lockedUntil",
+  );
   if (!user) {
     throw new AppError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
@@ -204,10 +206,35 @@ export const login = async (
     );
   }
 
+  // ── Account lockout check ────────────────────────────────────────────────
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    await audit.record({
+      actor: user.id as string,
+      actorRole: user.role,
+      action: "user.login_failed",
+      targetType: "user",
+      targetId: user.id as string,
+      metadata: { reason: "account_locked", ip: ctx?.ip },
+    });
+    throw new AppError(
+      "Account is temporarily locked due to too many failed login attempts. Please try again later.",
+      423, // HTTP 423 Locked
+    );
+  }
+
   const isMatch = await user.comparePassword(input.password);
   if (!isMatch) {
-    user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+    const attempts = (user.failedLoginAttempts || 0) + 1;
+    user.failedLoginAttempts = attempts;
     user.lastFailedLoginAt = new Date();
+
+    // Lock the account when the threshold is reached (MAX_LOGIN_ATTEMPTS > 0).
+    if (env.MAX_LOGIN_ATTEMPTS > 0 && attempts >= env.MAX_LOGIN_ATTEMPTS) {
+      user.lockedUntil = new Date(
+        Date.now() + env.LOGIN_LOCK_MINUTES * 60 * 1000,
+      );
+    }
+
     await user.save();
 
     await audit.record({
@@ -226,9 +253,10 @@ export const login = async (
     throw new AppError("Invalid email or password", StatusCodes.UNAUTHORIZED);
   }
 
-  if (user.failedLoginAttempts > 0) {
+  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
     user.failedLoginAttempts = 0;
     user.lastFailedLoginAt = undefined;
+    user.lockedUntil = undefined;
     await user.save();
   }
 

@@ -82,3 +82,43 @@ export const authorize =
     }
     next();
   };
+
+/**
+ * Requires the caller to hold specific permission keys. `super_admin` bypasses
+ * all checks. Regular `admin` users must have every listed key assigned.
+ */
+export const requirePermission =
+  (...keys: string[]) =>
+  async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    if (!req.user) {
+      return next(new AppError("Unauthorized", StatusCodes.UNAUTHORIZED));
+    }
+    if (req.user.role === "super_admin") {
+      return next();
+    }
+    if (keys.length === 0) {
+      return next();
+    }
+
+    try {
+      const { userHasPermissions } = await import(
+        "../../modules/permissions/permission.service"
+      );
+      const allowed = await userHasPermissions(
+        req.user.userId,
+        req.user.role,
+        keys,
+      );
+      if (!allowed) {
+        return next(
+          new AppError(
+            "Forbidden: missing required permission",
+            StatusCodes.FORBIDDEN,
+          ),
+        );
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };

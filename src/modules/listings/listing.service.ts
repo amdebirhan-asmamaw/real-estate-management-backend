@@ -19,6 +19,7 @@ import type {
   CreateListingInput,
   TransitionInput,
   DiscoveryQuery,
+  ClusterQuery,
   AdminListQuery,
 } from "./listing.validation";
 
@@ -476,6 +477,93 @@ export const discover = async (
   ]);
 
   return { items, total, page: q.page, limit: q.limit };
+};
+
+export interface ListingCluster {
+  id: string;
+  count: number;
+  center: { type: "Point"; coordinates: [number, number] };
+  listingIds: string[];
+  minPrice?: number;
+  maxPrice?: number;
+}
+
+export const clusters = async (q: ClusterQuery): Promise<ListingCluster[]> => {
+  const filter: FilterQuery<IListing> = {
+    status: "published",
+    location: {
+      $geoWithin: {
+        $box: [
+          [q.swLng, q.swLat],
+          [q.neLng, q.neLat],
+        ],
+      },
+    },
+  };
+  if (q.listingType) filter.listingType = q.listingType;
+  if (q.category) filter.category = q.category;
+  if (q.propertyType) filter.propertyType = q.propertyType;
+  if (q.verifiedOnly) filter.verificationStatus = "verified";
+  if (q.availabilityStatus) filter.availabilityStatus = q.availabilityStatus;
+  if (q.minPrice !== undefined || q.maxPrice !== undefined) {
+    const range: Record<string, number> = {};
+    if (q.minPrice !== undefined) range.$gte = q.minPrice;
+    if (q.maxPrice !== undefined) range.$lte = q.maxPrice;
+    filter.$or = [{ price: range }, { monthlyRent: range }];
+  }
+
+  const listings = await Listing.find(filter)
+    .select("_id location price monthlyRent listingType")
+    .limit(5000)
+    .lean();
+
+  const divisor = Math.max(2, Math.min(128, 2 ** Math.max(1, q.zoom - 8)));
+  const lngStep = Math.max((q.neLng - q.swLng) / divisor, 0.0001);
+  const latStep = Math.max((q.neLat - q.swLat) / divisor, 0.0001);
+  const map = new Map<
+    string,
+    {
+      lngSum: number;
+      latSum: number;
+      count: number;
+      listingIds: string[];
+      prices: number[];
+    }
+  >();
+
+  for (const listing of listings) {
+    const [lng, lat] = listing.location.coordinates;
+    const x = Math.floor((lng - q.swLng) / lngStep);
+    const y = Math.floor((lat - q.swLat) / latStep);
+    const key = `${x}:${y}`;
+    const entry = map.get(key) ?? {
+      lngSum: 0,
+      latSum: 0,
+      count: 0,
+      listingIds: [],
+      prices: [],
+    };
+    entry.lngSum += lng;
+    entry.latSum += lat;
+    entry.count += 1;
+    entry.listingIds.push(String(listing._id));
+    const price =
+      listing.listingType === "sale" ? listing.price : listing.monthlyRent;
+    if (typeof price === "number") entry.prices.push(price);
+    map.set(key, entry);
+  }
+
+  return Array.from(map.entries()).map(([id, entry]) => ({
+    id,
+    count: entry.count,
+    center: {
+      type: "Point",
+      coordinates: [entry.lngSum / entry.count, entry.latSum / entry.count],
+    },
+    listingIds: entry.listingIds,
+    minPrice: entry.prices.length > 0 ? Math.min(...entry.prices) : undefined,
+    maxPrice: entry.prices.length > 0 ? Math.max(...entry.prices) : undefined,
+  }));
 };
 
 export const adminList = async (
@@ -1275,4 +1363,164 @@ export const adminDashboardStats = async (): Promise<AdminListingStats> => {
   }
 
   return { total, byStatus, byVerification, pendingReview };
+};
+
+// ─── Yield / revenue dashboard ─────────────────────────────────────────────────
+
+import { Lease } from "../leases/lease.model";
+
+export interface YieldDashboard {
+  totalListings: number;
+  activeLeaseCount: number;
+  grossMonthlyRent: number;
+  realizedRevenue: number;
+  occupancyRate: number;
+}
+
+/**
+ * Portfolio-level yield rollup for a property owner:
+ *   - activeLeaseCount    — leases currently in "active" status
+ *   - grossMonthlyRent    — sum of monthlyRent across active leases
+ *   - realizedRevenue     — sum of monthlyRent across completed/terminated leases
+ *   - occupancyRate       — rented/total owned published+rented listings
+ */
+export const yieldDashboard = async (
+  userId: string,
+): Promise<YieldDashboard> => {
+  const [totalListings, leases, rentedCount] = await Promise.all([
+    Listing.countDocuments({ createdBy: userId }),
+    Lease.find({
+      landlord: userId,
+      status: { $in: ["active", "completed", "terminated"] },
+    }).select("status monthlyRent"),
+    Listing.countDocuments({ createdBy: userId, status: "rented" }),
+  ]);
+
+  let activeLeaseCount = 0;
+  let grossMonthlyRent = 0;
+  let realizedRevenue = 0;
+
+  for (const lease of leases) {
+    if (lease.status === "active") {
+      activeLeaseCount += 1;
+      grossMonthlyRent += lease.monthlyRent;
+    } else {
+      // completed or terminated — count one month of realized rent
+      realizedRevenue += lease.monthlyRent;
+    }
+  }
+
+  const publishedCount = await Listing.countDocuments({
+    createdBy: userId,
+    status: "published",
+  });
+  const rentable = publishedCount + rentedCount;
+  const occupancyRate = rentable > 0 ? Math.min(1, rentedCount / rentable) : 0;
+
+  return {
+    totalListings,
+    activeLeaseCount,
+    grossMonthlyRent,
+    realizedRevenue,
+    occupancyRate,
+  };
+};
+
+// ─── Bulk listing actions ────────────────────────────────────────────────────────
+
+import type { BulkActionInput } from "./listing.validation";
+
+export interface BulkActionResult {
+  id: string;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Applies a list of transition actions (up to 50) in sequence, collecting
+ * per-item success/failure without failing the entire batch on one error.
+ */
+export const bulkAction = async (
+  input: BulkActionInput,
+  userId: string,
+  role: string,
+): Promise<BulkActionResult[]> => {
+  const results: BulkActionResult[] = [];
+  for (const item of input.actions) {
+    try {
+      await transition(
+        item.id,
+        { action: item.action, reason: item.reason, note: item.note },
+        userId,
+        role,
+      );
+      results.push({ id: item.id, ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      results.push({ id: item.id, ok: false, error: message });
+    }
+  }
+  return results;
+};
+
+// ─── Neighborhood analytics ─────────────────────────────────────────────────────
+
+export interface NeighborhoodStat {
+  city: string;
+  region?: string;
+  count: number;
+  avgPrice: number | null;
+  minPrice: number | null;
+  maxPrice: number | null;
+  avgMonthlyRent: number | null;
+  availability: Record<string, number>;
+}
+
+export interface NeighborhoodAnalyticsQuery {
+  region?: string;
+}
+
+/** Aggregates published listings grouped by city (and optionally region). */
+export const neighborhoodAnalytics = async (
+  q: NeighborhoodAnalyticsQuery,
+): Promise<NeighborhoodStat[]> => {
+  const match: FilterQuery<IListing> = { status: "published" };
+  if (q.region) match["address.region"] = q.region;
+
+  const rows = await Listing.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: { city: "$address.city", region: "$address.region" },
+        count: { $sum: 1 },
+        avgPrice: { $avg: "$price" },
+        minPrice: { $min: "$price" },
+        maxPrice: { $max: "$price" },
+        avgMonthlyRent: { $avg: "$monthlyRent" },
+        availabilityStatuses: { $push: "$availabilityStatus" },
+      },
+    },
+    { $sort: { count: -1 } },
+  ]);
+
+  return rows.map((row) => {
+    const availability: Record<string, number> = {};
+    for (const s of row.availabilityStatuses as string[]) {
+      availability[s] = (availability[s] ?? 0) + 1;
+    }
+    return {
+      city: (row._id as { city?: string }).city ?? "Unknown",
+      region: (row._id as { region?: string }).region,
+      count: row.count as number,
+      avgPrice:
+        row.avgPrice != null ? Math.round(row.avgPrice as number) : null,
+      minPrice: row.minPrice != null ? (row.minPrice as number) : null,
+      maxPrice: row.maxPrice != null ? (row.maxPrice as number) : null,
+      avgMonthlyRent:
+        row.avgMonthlyRent != null
+          ? Math.round(row.avgMonthlyRent as number)
+          : null,
+      availability,
+    };
+  });
 };

@@ -74,7 +74,7 @@ describe("Purchase transactions", () => {
     expect(listing?.availabilityStatus).toBe("under_offer");
   });
 
-  it("lets admins advance a purchase transaction and mark listing sold", async () => {
+  it("blocks completing a purchase via direct status update without a released escrow", async () => {
     await register("purchase-owner2@example.com", "property_owner");
     await register("purchase-buyer2@example.com", "tenant");
     const ownerToken = await login("purchase-owner2@example.com");
@@ -92,27 +92,17 @@ describe("Purchase transactions", () => {
       .send({ action: "accept" });
     const tx = await PurchaseTransaction.findOne({ offer: offer.body.data.id });
 
+    // Transparency guard: a sale cannot be marked completed without the escrow
+    // actually being released on-chain. Direct status jumps are rejected.
     const updated = await request(app)
       .patch(`/api/v1/purchase-transactions/${tx!.id}/status`)
       .set(bearer(adminToken))
-      .send({
-        status: "completed",
-        note: "Closed",
-        closingChecklist: {
-          purchaseAgreement: true,
-          inspection: true,
-          financing: true,
-          titleReview: true,
-          settlementStatement: true,
-        },
-      });
+      .send({ status: "completed", note: "Closed" });
 
-    expect(updated.status).toBe(200);
-    expect(updated.body.data.status).toBe("completed");
-    expect(updated.body.data.timeline).toHaveLength(2);
+    expect(updated.status).toBe(409);
 
     const listing = await Listing.findById(listingId);
-    expect(listing?.status).toBe("sold");
-    expect(listing?.availabilityStatus).toBe("sold");
+    expect(listing?.status).not.toBe("sold");
+    expect(listing?.availabilityStatus).not.toBe("sold");
   });
 });

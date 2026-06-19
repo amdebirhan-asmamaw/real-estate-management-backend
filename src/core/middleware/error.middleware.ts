@@ -7,7 +7,7 @@ import { env } from "../config/env";
 
 export const errorHandler = (
   err: Error,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ): void => {
@@ -16,6 +16,7 @@ export const errorHandler = (
     res.status(err.statusCode).json({
       success: false,
       message: err.message,
+      requestId: req.requestId,
       ...(err.errors && { errors: err.errors }),
     });
     return;
@@ -26,6 +27,7 @@ export const errorHandler = (
     res.status(StatusCodes.UNPROCESSABLE_ENTITY).json({
       success: false,
       message: "Validation error",
+      requestId: req.requestId,
       errors: (err as Joi.ValidationError).details.map((d) => ({
         field: d.path.join("."),
         message: d.message.replace(/"/g, ""),
@@ -44,6 +46,7 @@ export const errorHandler = (
     const field = keyValue ? Object.keys(keyValue)[0] : undefined;
     res.status(StatusCodes.CONFLICT).json({
       success: false,
+      requestId: req.requestId,
       message: field
         ? `A record with this ${field} already exists`
         : "Duplicate field value",
@@ -56,6 +59,7 @@ export const errorHandler = (
     res.status(StatusCodes.UNPROCESSABLE_ENTITY).json({
       success: false,
       message: "Validation error",
+      requestId: req.requestId,
       errors: Object.values(
         (err as Error & { errors?: Record<string, { message: string }> })
           .errors ?? {},
@@ -69,6 +73,7 @@ export const errorHandler = (
     res.status(StatusCodes.BAD_REQUEST).json({
       success: false,
       message: "Invalid ID format",
+      requestId: req.requestId,
     });
     return;
   }
@@ -78,6 +83,7 @@ export const errorHandler = (
     res.status(StatusCodes.UNAUTHORIZED).json({
       success: false,
       message: "Invalid token",
+      requestId: req.requestId,
     });
     return;
   }
@@ -86,6 +92,7 @@ export const errorHandler = (
     res.status(StatusCodes.UNAUTHORIZED).json({
       success: false,
       message: "Token expired",
+      requestId: req.requestId,
     });
     return;
   }
@@ -96,6 +103,7 @@ export const errorHandler = (
   res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: "Internal server error",
+    requestId: req.requestId,
     ...(env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };

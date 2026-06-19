@@ -5,6 +5,7 @@ export const CHAIN_TRANSACTION_OPERATIONS = [
   "title.dispute",
   "title.clear_dispute",
   "title.revoke",
+  "title.transfer",
   "lease_escrow.open_and_fund",
   "lease_escrow.activate",
   "lease_escrow.cancel",
