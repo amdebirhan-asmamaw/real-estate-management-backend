@@ -17,6 +17,7 @@ import { complianceRouter } from "./modules/compliance/compliance.routes";
 import { purchaseTransactionRouter } from "./modules/purchaseTransactions/purchaseTransaction.routes";
 import { rentalApplicationRouter } from "./modules/rentalApplications/rentalApplication.routes";
 import { geoRouter } from "./modules/geo/geo.routes";
+import { settingsRouter } from "./modules/settings/settings.routes";
 
 const router = Router();
 
@@ -38,6 +39,8 @@ router.use("/compliance", complianceRouter);
 router.use("/purchase-transactions", purchaseTransactionRouter);
 router.use("/rental-applications", rentalApplicationRouter);
 router.use("/geo", geoRouter);
+
+router.use("/settings", settingsRouter);
 
 // Register new module routers here:
 
