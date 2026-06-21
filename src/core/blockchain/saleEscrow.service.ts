@@ -19,6 +19,13 @@ interface ContractCache {
   provider: JsonRpcProvider;
 }
 
+const ERC20_ABI = [
+  "function decimals() view returns (uint8)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+] as const;
+
 let cached: ContractCache | null = null;
 /** Cached token decimals — null means not yet fetched. */
 let cachedDecimals: number | null = null;
@@ -92,6 +99,15 @@ export const toBaseUnits = async (amount: number): Promise<bigint> => {
   return parseUnits(amount.toString(), decimals);
 };
 
+const formatUnitsForMessage = async (amount: bigint): Promise<string> => {
+  const decimals = await getTokenDecimals();
+  const divisor = 10n ** BigInt(decimals);
+  const whole = amount / divisor;
+  const fraction = amount % divisor;
+  if (fraction === 0n) return whole.toString();
+  return `${whole}.${fraction.toString().padStart(decimals, "0").replace(/0+$/, "")}`;
+};
+
 /**
  * Guard against accidental mainnet escrow operations.
  *
@@ -116,6 +132,79 @@ const assertNotMainnet = async (): Promise<void> => {
   }
 };
 
+const assertEscrowContractReady = async (): Promise<void> => {
+  const { contract, owner } = getContract();
+  const [paused, allowed, operatorRole] = await Promise.all([
+    contract.paused() as Promise<boolean>,
+    contract.allowedTokens(env.ESCROW_TOKEN_ADDRESS) as Promise<boolean>,
+    contract.SALE_ESCROW_OPERATOR_ROLE() as Promise<string>,
+  ]);
+  const isOperator = (await contract.hasRole(
+    operatorRole,
+    owner.address,
+  )) as boolean;
+
+  if (paused) {
+    throw new AppError(
+      "Sale escrow contract is paused. Unpause it before funding purchase escrow.",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  if (!allowed) {
+    throw new AppError(
+      `Escrow token ${env.ESCROW_TOKEN_ADDRESS} is not allowlisted on SaleEscrow ${env.SALE_ESCROW_CONTRACT_ADDRESS}. ` +
+        "Call setTokenAllowed(token, true) before funding purchase escrow.",
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  if (!isOperator) {
+    throw new AppError(
+      `Configured escrow signer ${owner.address} does not have SALE_ESCROW_OPERATOR_ROLE on SaleEscrow ${env.SALE_ESCROW_CONTRACT_ADDRESS}. ` +
+        "Grant it with setSaleEscrowOperator(signer, true).",
+      StatusCodes.FORBIDDEN,
+    );
+  }
+};
+
+const ensureTokenFundingApproval = async (amount: bigint): Promise<void> => {
+  const { owner } = getContract();
+  const token = new Contract(
+    env.ESCROW_TOKEN_ADDRESS,
+    ERC20_ABI as unknown as string[],
+    owner,
+  );
+
+  const [balance, allowance] = (await Promise.all([
+    token.balanceOf(owner.address),
+    token.allowance(owner.address, env.SALE_ESCROW_CONTRACT_ADDRESS),
+  ])) as [bigint, bigint];
+
+  if (balance < amount) {
+    throw new AppError(
+      `Escrow funding wallet ${owner.address} has insufficient token balance. ` +
+        `Required ${await formatUnitsForMessage(amount)}, available ${await formatUnitsForMessage(balance)} ` +
+        `for token ${env.ESCROW_TOKEN_ADDRESS}.`,
+      StatusCodes.CONFLICT,
+    );
+  }
+
+  if (allowance >= amount) return;
+
+  logger.info(
+    `saleEscrow: approving ${env.SALE_ESCROW_CONTRACT_ADDRESS} to spend ${await formatUnitsForMessage(amount)} token(s) from ${owner.address}`,
+  );
+  const tx = await token.approve(env.SALE_ESCROW_CONTRACT_ADDRESS, amount);
+  const receipt = await tx.wait();
+  if (receipt?.status !== 1) {
+    throw new AppError(
+      "Sale escrow token approval transaction failed",
+      StatusCodes.BAD_GATEWAY,
+    );
+  }
+};
+
 export interface OpenSaleEscrowInput {
   saleId: string;
   buyer: string;
@@ -136,6 +225,8 @@ export const openAndFundEscrow = async (
   input: OpenSaleEscrowInput,
 ): Promise<OpenSaleEscrowResult> => {
   await assertNotMainnet();
+  await assertEscrowContractReady();
+  await ensureTokenFundingApproval(input.amount);
   const { contract } = getContract();
   const tx = await contract.openAndFund(
     input.saleId,
