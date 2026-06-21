@@ -14,6 +14,7 @@ import * as notifications from "../notifications/notification.service";
 import * as compliance from "../compliance/compliance.service";
 import * as savedSearches from "../savedSearches/savedSearch.service";
 import type { AuditAction } from "../audit/audit.model";
+import { Types } from "mongoose";
 import type { FilterQuery } from "mongoose";
 import type {
   CreateListingInput,
@@ -137,7 +138,9 @@ export const deleteListing = async (
 };
 
 export const listMine = async (userId: string): Promise<IListing[]> =>
-  Listing.find({ createdBy: userId }).sort({ createdAt: -1 });
+  Listing.find({ createdBy: new Types.ObjectId(userId) }).sort({
+    createdAt: -1,
+  });
 
 // Shared internals reused by later service modules (transitions, photos, docs).
 export const _internal = { findOr404, ensureOwnerOrAdmin, isOwnerOrAdmin };
@@ -1315,12 +1318,13 @@ export interface OwnerDashboardStats {
 export const ownerDashboard = async (
   userId: string,
 ): Promise<OwnerDashboardStats> => {
+  const oid = new Types.ObjectId(userId);
   const [statusAgg, inquiryCount] = await Promise.all([
     Listing.aggregate([
-      { $match: { createdBy: userId } },
+      { $match: { createdBy: oid } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
-    Inquiry.countDocuments({ listingOwner: userId, status: "open" }),
+    Inquiry.countDocuments({ listingOwner: oid, status: "open" }),
   ]);
 
   const byStatus: Record<string, number> = {};
@@ -1387,13 +1391,14 @@ export interface YieldDashboard {
 export const yieldDashboard = async (
   userId: string,
 ): Promise<YieldDashboard> => {
+  const oid = new Types.ObjectId(userId);
   const [totalListings, leases, rentedCount] = await Promise.all([
-    Listing.countDocuments({ createdBy: userId }),
+    Listing.countDocuments({ createdBy: oid }),
     Lease.find({
-      landlord: userId,
+      landlord: oid,
       status: { $in: ["active", "completed", "terminated"] },
     }).select("status monthlyRent"),
-    Listing.countDocuments({ createdBy: userId, status: "rented" }),
+    Listing.countDocuments({ createdBy: oid, status: "rented" }),
   ]);
 
   let activeLeaseCount = 0;
@@ -1411,7 +1416,7 @@ export const yieldDashboard = async (
   }
 
   const publishedCount = await Listing.countDocuments({
-    createdBy: userId,
+    createdBy: oid,
     status: "published",
   });
   const rentable = publishedCount + rentedCount;
