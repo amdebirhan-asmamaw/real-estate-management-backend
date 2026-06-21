@@ -12,7 +12,6 @@ import { errorHandler } from "./core/middleware/error.middleware";
 import { notFoundHandler } from "./core/middleware/notFound.middleware";
 import { httpLogger } from "./core/middleware/httpLogger.middleware";
 import { requestId } from "./core/middleware/requestId.middleware";
-import { apiLimiter } from "./core/middleware/rateLimiter.middleware";
 import { getReadiness } from "./core/health/readiness";
 import apiRouter from "./index.routes";
 
@@ -68,7 +67,6 @@ app.get("/api/v1/docs.json", (_req, res) => res.json(openapiSpec));
 app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
-app.use("/api", apiLimiter);
 app.use("/api/v1", apiRouter);
 
 // ─── Error Handlers ───────────────────────────────────────────────────────────

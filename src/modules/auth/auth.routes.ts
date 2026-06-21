@@ -1,8 +1,7 @@
-import { Router } from 'express';
-import * as authController from './auth.controller';
-import { validate } from '../../core/middleware/validate.middleware';
-import { authenticate } from '../../core/middleware/auth.middleware';
-import { authLimiter, passwordResetLimiter } from '../../core/middleware/rateLimiter.middleware';
+import { Router } from "express";
+import * as authController from "./auth.controller";
+import { validate } from "../../core/middleware/validate.middleware";
+import { authenticate } from "../../core/middleware/auth.middleware";
 import {
   registerSchema,
   loginSchema,
@@ -13,55 +12,62 @@ import {
   updateProfileSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-} from './auth.validation';
+} from "./auth.validation";
 
 export const authRouter = Router();
 
-// Public routes (rate-limited to deter brute-force / credential stuffing)
-authRouter.post('/register', authLimiter, validate(registerSchema), authController.register);
-authRouter.post('/login', authLimiter, validate(loginSchema), authController.login);
-authRouter.post('/refresh-token', authLimiter, validate(refreshTokenSchema), authController.refreshToken);
-authRouter.post('/logout', validate(refreshTokenSchema), authController.logout);
+// Public routes
+authRouter.post("/register", validate(registerSchema), authController.register);
+authRouter.post("/login", validate(loginSchema), authController.login);
 authRouter.post(
-  '/forgot-password',
-  passwordResetLimiter,
+  "/refresh-token",
+  validate(refreshTokenSchema),
+  authController.refreshToken,
+);
+authRouter.post("/logout", validate(refreshTokenSchema), authController.logout);
+authRouter.post(
+  "/forgot-password",
   validate(forgotPasswordSchema),
   authController.forgotPassword,
 );
 authRouter.post(
-  '/reset-password',
-  passwordResetLimiter,
+  "/reset-password",
   validate(resetPasswordSchema),
   authController.resetPassword,
 );
 
 // Protected routes
-authRouter.get('/me', authenticate, authController.getMe);
-authRouter.patch('/me', authenticate, validate(updateProfileSchema), authController.updateProfile);
+authRouter.get("/me", authenticate, authController.getMe);
 authRouter.patch(
-  '/profile',
+  "/me",
   authenticate,
   validate(updateProfileSchema),
   authController.updateProfile,
 );
-authRouter.get('/sessions', authenticate, authController.sessions);
-authRouter.post('/logout-all', authenticate, authController.logoutAll);
+authRouter.patch(
+  "/profile",
+  authenticate,
+  validate(updateProfileSchema),
+  authController.updateProfile,
+);
+authRouter.get("/sessions", authenticate, authController.sessions);
+authRouter.post("/logout-all", authenticate, authController.logoutAll);
 authRouter.post(
-  '/change-password',
+  "/change-password",
   authenticate,
   validate(changePasswordSchema),
-  authController.changePassword
+  authController.changePassword,
 );
 authRouter.post(
-  '/wallet/challenge',
+  "/wallet/challenge",
   authenticate,
   validate(walletChallengeSchema),
-  authController.walletChallenge
+  authController.walletChallenge,
 );
 authRouter.post(
-  '/wallet/link',
+  "/wallet/link",
   authenticate,
   validate(walletLinkSchema),
-  authController.linkWallet
+  authController.linkWallet,
 );
-authRouter.delete('/wallet', authenticate, authController.unlinkWallet);
+authRouter.delete("/wallet", authenticate, authController.unlinkWallet);
